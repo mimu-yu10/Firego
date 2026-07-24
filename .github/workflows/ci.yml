@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  MAGE_VERSION: v1.17.2
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Lint
+        run: go run github.com/magefile/mage@${{ env.MAGE_VERSION }} lint
+
+      - name: Build
+        run: go run github.com/magefile/mage@${{ env.MAGE_VERSION }} build
+
+      - name: Test
+        run: go run github.com/magefile/mage@${{ env.MAGE_VERSION }} test
