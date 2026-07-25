@@ -2,7 +2,10 @@ module github.com/mimu-y10/firego
 
 go 1.26
 
-require cloud.google.com/go/firestore v1.24.0
+require (
+	cloud.google.com/go/firestore v1.24.0
+	google.golang.org/grpc v1.82.0
+)
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
@@ -34,6 +37,5 @@ require (
 	google.golang.org/genproto v0.0.0-20260519071638-aa98bba5eb94 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
-	google.golang.org/grpc v1.82.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
