@@ -13,7 +13,7 @@ type testUser struct {
 	Name     string `firestore:"name,omitempty"`
 	Age      int
 	Ignored  string `firestore:"-"`
-	internal string
+	internal string //nolint:unused // present so the parser can be tested against an unexported field
 }
 
 // testBase is a reusable embedded struct that models the common Base pattern.

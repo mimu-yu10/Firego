@@ -92,9 +92,16 @@ err = firego.RunTransaction(ctx, client, func(tx *firego.Tx) error {
 
 ## Development
 
+CI tasks (lint, build, test) run through [mage](https://magefile.org). No local mage install is required — invoke it via `go run`:
+
 ```bash
-go test ./...
+go run github.com/magefile/mage@v1.17.2 lint   # golangci-lint
+go run github.com/magefile/mage@v1.17.2 build  # go build ./...
+go run github.com/magefile/mage@v1.17.2 test   # go test -race ./...
+go run github.com/magefile/mage@v1.17.2 ci     # runs all three
 ```
+
+If you have mage installed (`go install github.com/magefile/mage@latest`), the same targets are available as `mage lint`, `mage build`, `mage test`, and `mage ci`.
 
 ## License
 
