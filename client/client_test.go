@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/mimu-y10/firego/schema"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -42,5 +43,62 @@ func TestIsNotFound(t *testing.T) {
 				t.Errorf("isNotFound(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCloneSchemaDetachesFromOriginal(t *testing.T) {
+	original := &schema.Schema{
+		Name:       "Model",
+		Collection: "models",
+		Fields: []schema.Field{
+			{Name: "ID", FirestoreName: "-", StructIndex: []int{0}, IsID: true},
+			{Name: "Value", FirestoreName: "value", StructIndex: []int{1}},
+		},
+	}
+	original.IDField = &original.Fields[0]
+
+	clone := cloneSchema(original)
+
+	// Mutate the clone every way a careless caller might, then confirm the
+	// cached original (and any other clone taken from it) is untouched.
+	clone.Fields[0].Name = "mutated"
+	clone.Fields[1].StructIndex[0] = 999
+	clone.IDField.FirestoreName = "mutated"
+
+	if original.Fields[0].Name != "ID" {
+		t.Errorf("mutating clone.Fields[0].Name changed the original: %q", original.Fields[0].Name)
+	}
+	if original.Fields[1].StructIndex[0] != 1 {
+		t.Errorf("mutating clone.Fields[1].StructIndex changed the original: %v", original.Fields[1].StructIndex)
+	}
+	if original.IDField.FirestoreName != "-" {
+		t.Errorf("mutating clone.IDField changed the original: %q", original.IDField.FirestoreName)
+	}
+}
+
+func TestCloneSchemaIDFieldPointsIntoTheClone(t *testing.T) {
+	original := &schema.Schema{
+		Fields: []schema.Field{
+			{Name: "ID", IsID: true, StructIndex: []int{0}},
+		},
+	}
+	original.IDField = &original.Fields[0]
+
+	clone := cloneSchema(original)
+
+	if clone.IDField != &clone.Fields[0] {
+		t.Error("clone.IDField does not point into clone.Fields")
+	}
+}
+
+func TestCloneSchemaWithoutIDField(t *testing.T) {
+	original := &schema.Schema{
+		Fields: []schema.Field{
+			{Name: "Value", StructIndex: []int{0}},
+		},
+	}
+
+	if clone := cloneSchema(original); clone.IDField != nil {
+		t.Errorf("IDField = %v, want nil", clone.IDField)
 	}
 }
