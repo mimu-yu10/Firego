@@ -21,15 +21,9 @@ func New(s *schema.Schema) Codec {
 }
 
 func (c *schemaCodec) Encode(v any) (map[string]any, error) {
-	rv := reflect.ValueOf(v)
-	for rv.Kind() == reflect.Pointer {
-		if rv.IsNil() {
-			return nil, fmt.Errorf("codec: cannot encode nil %s", rv.Type())
-		}
-		rv = rv.Elem()
-	}
-	if rv.Type() != c.schema.GoType {
-		return nil, fmt.Errorf("codec: value type %s does not match schema type %s", rv.Type(), c.schema.GoType)
+	rv, err := c.resolveInput(v)
+	if err != nil {
+		return nil, err
 	}
 
 	data := make(map[string]any, len(c.schema.Fields))
@@ -43,13 +37,9 @@ func (c *schemaCodec) Encode(v any) (map[string]any, error) {
 }
 
 func (c *schemaCodec) Decode(data map[string]any, dst any) error {
-	rv := reflect.ValueOf(dst)
-	if rv.Kind() != reflect.Pointer || rv.IsNil() {
-		return fmt.Errorf("codec: dst must be a non-nil pointer")
-	}
-	rv = rv.Elem()
-	if rv.Type() != c.schema.GoType {
-		return fmt.Errorf("codec: dst type %s does not match schema type %s", rv.Type(), c.schema.GoType)
+	rv, err := c.resolveDst(dst)
+	if err != nil {
+		return err
 	}
 
 	for _, f := range c.schema.Fields {
@@ -65,6 +55,66 @@ func (c *schemaCodec) Decode(data map[string]any, dst any) error {
 		}
 	}
 	return nil
+}
+
+// ID returns the current value of v's ID field, or "" if the schema
+// declares no ID field.
+func (c *schemaCodec) ID(v any) (string, error) {
+	rv, err := c.resolveInput(v)
+	if err != nil {
+		return "", err
+	}
+	if c.schema.IDField == nil {
+		return "", nil
+	}
+	return rv.FieldByIndex(c.schema.IDField.StructIndex).String(), nil
+}
+
+// SetID writes id into dst's ID field. It is a no-op if the schema declares
+// no ID field.
+func (c *schemaCodec) SetID(dst any, id string) error {
+	rv, err := c.resolveDst(dst)
+	if err != nil {
+		return err
+	}
+	if c.schema.IDField == nil {
+		return nil
+	}
+	rv.FieldByIndex(c.schema.IDField.StructIndex).SetString(id)
+	return nil
+}
+
+// resolveInput unwraps any number of pointer indirections around v (erroring
+// on a nil pointer along the way) and validates that the underlying value's
+// type matches the schema's Go type. It is shared by Encode and ID, which
+// both read from an existing value.
+func (c *schemaCodec) resolveInput(v any) (reflect.Value, error) {
+	rv := reflect.ValueOf(v)
+	for rv.Kind() == reflect.Pointer {
+		if rv.IsNil() {
+			return reflect.Value{}, fmt.Errorf("codec: cannot use nil %s", rv.Type())
+		}
+		rv = rv.Elem()
+	}
+	if rv.Type() != c.schema.GoType {
+		return reflect.Value{}, fmt.Errorf("codec: value type %s does not match schema type %s", rv.Type(), c.schema.GoType)
+	}
+	return rv, nil
+}
+
+// resolveDst validates that dst is a non-nil pointer to the schema's Go type
+// and returns the pointed-to value. It is shared by Decode and SetID, which
+// both write into an existing value through a pointer.
+func (c *schemaCodec) resolveDst(dst any) (reflect.Value, error) {
+	rv := reflect.ValueOf(dst)
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
+		return reflect.Value{}, fmt.Errorf("codec: dst must be a non-nil pointer")
+	}
+	rv = rv.Elem()
+	if rv.Type() != c.schema.GoType {
+		return reflect.Value{}, fmt.Errorf("codec: dst type %s does not match schema type %s", rv.Type(), c.schema.GoType)
+	}
+	return rv, nil
 }
 
 // setField assigns raw into fv, converting between compatible types (for

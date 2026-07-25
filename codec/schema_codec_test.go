@@ -155,3 +155,120 @@ func TestDecodeIncompatibleValue(t *testing.T) {
 		t.Fatal("Decode() error = nil, want error")
 	}
 }
+
+// noIDModel has no firego:"id" field, exercising the no-op path of ID and
+// SetID.
+type noIDModel struct {
+	Name string `firestore:"name"`
+}
+
+func mustParseNoID(t *testing.T) *schemaCodec {
+	t.Helper()
+	s, err := metadata.Parse[noIDModel]("items")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	return &schemaCodec{schema: s}
+}
+
+func TestID(t *testing.T) {
+	c := mustParse(t)
+
+	got, err := c.ID(testModel{ID: "abc"})
+	if err != nil {
+		t.Fatalf("ID() error = %v", err)
+	}
+	if got != "abc" {
+		t.Errorf("ID() = %q, want %q", got, "abc")
+	}
+}
+
+func TestIDPointer(t *testing.T) {
+	c := mustParse(t)
+
+	got, err := c.ID(&testModel{ID: "abc"})
+	if err != nil {
+		t.Fatalf("ID() error = %v", err)
+	}
+	if got != "abc" {
+		t.Errorf("ID() = %q, want %q", got, "abc")
+	}
+}
+
+func TestIDNoIDField(t *testing.T) {
+	c := mustParseNoID(t)
+
+	got, err := c.ID(noIDModel{Name: "x"})
+	if err != nil {
+		t.Fatalf("ID() error = %v", err)
+	}
+	if got != "" {
+		t.Errorf("ID() = %q, want empty", got)
+	}
+}
+
+func TestIDRejectsNilPointer(t *testing.T) {
+	c := mustParse(t)
+
+	var v *testModel
+	if _, err := c.ID(v); err == nil {
+		t.Fatal("ID() error = nil, want error")
+	}
+}
+
+func TestIDTypeMismatch(t *testing.T) {
+	c := mustParse(t)
+
+	type other struct{ X int }
+	if _, err := c.ID(other{}); err == nil {
+		t.Fatal("ID() error = nil, want error")
+	}
+}
+
+func TestSetID(t *testing.T) {
+	c := mustParse(t)
+
+	var got testModel
+	if err := c.SetID(&got, "abc"); err != nil {
+		t.Fatalf("SetID() error = %v", err)
+	}
+	if got.ID != "abc" {
+		t.Errorf("ID = %q, want %q", got.ID, "abc")
+	}
+}
+
+func TestSetIDNoIDField(t *testing.T) {
+	c := mustParseNoID(t)
+
+	var got noIDModel
+	if err := c.SetID(&got, "abc"); err != nil {
+		t.Fatalf("SetID() error = %v", err)
+	}
+}
+
+func TestSetIDRejectsNonPointer(t *testing.T) {
+	c := mustParse(t)
+
+	if err := c.SetID(testModel{}, "abc"); err == nil {
+		t.Fatal("SetID() error = nil, want error")
+	}
+}
+
+func TestSetIDRejectsNilPointer(t *testing.T) {
+	c := mustParse(t)
+
+	var dst *testModel
+	if err := c.SetID(dst, "abc"); err == nil {
+		t.Fatal("SetID() error = nil, want error")
+	}
+}
+
+func TestSetIDTypeMismatch(t *testing.T) {
+	c := mustParse(t)
+
+	type other struct{ X int }
+	var dst other
+	if err := c.SetID(&dst, "abc"); err == nil {
+		t.Fatal("SetID() error = nil, want error")
+	}
+}
