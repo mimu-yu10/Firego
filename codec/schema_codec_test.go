@@ -272,3 +272,101 @@ func TestSetIDTypeMismatch(t *testing.T) {
 		t.Fatal("SetID() error = nil, want error")
 	}
 }
+
+// PtrEmbedBase and ptrEmbedModel exercise promotion through a nil embedded
+// *pointer* struct (as opposed to testBase/testEmbedded's embedding by
+// value), which the metadata parser explicitly supports.
+type PtrEmbedBase struct {
+	ID  string `firego:"id" firestore:"-"`
+	Rev string `firestore:"rev"`
+}
+
+type ptrEmbedModel struct {
+	*PtrEmbedBase
+	Name string `firestore:"name"`
+}
+
+func mustParsePtrEmbed(t *testing.T) *schemaCodec {
+	t.Helper()
+	s, err := metadata.Parse[ptrEmbedModel]("items")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	return &schemaCodec{schema: s}
+}
+
+func TestSetIDAllocatesNilEmbeddedPointer(t *testing.T) {
+	c := mustParsePtrEmbed(t)
+
+	var got ptrEmbedModel // *PtrEmbedBase starts nil
+	if err := c.SetID(&got, "abc"); err != nil {
+		t.Fatalf("SetID() error = %v", err)
+	}
+	if got.PtrEmbedBase == nil {
+		t.Fatal("SetID() left the embedded pointer nil")
+	}
+	if got.ID != "abc" {
+		t.Errorf("ID = %q, want %q", got.ID, "abc")
+	}
+}
+
+func TestDecodeAllocatesNilEmbeddedPointer(t *testing.T) {
+	c := mustParsePtrEmbed(t)
+
+	var got ptrEmbedModel // *PtrEmbedBase starts nil
+	if err := c.Decode(map[string]any{"rev": "r1", "name": "x"}, &got); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if got.PtrEmbedBase == nil {
+		t.Fatal("Decode() left the embedded pointer nil")
+	}
+	if got.Rev != "r1" {
+		t.Errorf("Rev = %q, want %q", got.Rev, "r1")
+	}
+	if got.Name != "x" {
+		t.Errorf("Name = %q, want %q", got.Name, "x")
+	}
+}
+
+func TestEncodeHandlesNilEmbeddedPointer(t *testing.T) {
+	c := mustParsePtrEmbed(t)
+
+	got, err := c.Encode(ptrEmbedModel{Name: "x"}) // *PtrEmbedBase left nil
+	if err != nil {
+		t.Fatalf("Encode() error = %v", err)
+	}
+	if got["rev"] != "" {
+		t.Errorf("rev = %v, want zero value", got["rev"])
+	}
+	if got["name"] != "x" {
+		t.Errorf("name = %v, want x", got["name"])
+	}
+}
+
+func TestIDHandlesNilEmbeddedPointer(t *testing.T) {
+	c := mustParsePtrEmbed(t)
+
+	got, err := c.ID(ptrEmbedModel{Name: "x"}) // *PtrEmbedBase left nil
+	if err != nil {
+		t.Fatalf("ID() error = %v", err)
+	}
+	if got != "" {
+		t.Errorf("ID() = %q, want empty", got)
+	}
+}
+
+func TestIDRejectsUntypedNil(t *testing.T) {
+	c := mustParse(t)
+
+	if _, err := c.ID(nil); err == nil {
+		t.Fatal("ID() error = nil, want error")
+	}
+}
+
+func TestEncodeRejectsUntypedNil(t *testing.T) {
+	c := mustParse(t)
+
+	if _, err := c.Encode(nil); err == nil {
+		t.Fatal("Encode() error = nil, want error")
+	}
+}

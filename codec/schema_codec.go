@@ -31,7 +31,7 @@ func (c *schemaCodec) Encode(v any) (map[string]any, error) {
 		if f.IsID {
 			continue
 		}
-		data[f.FirestoreName] = rv.FieldByIndex(f.StructIndex).Interface()
+		data[f.FirestoreName] = fieldValue(rv, f).Interface()
 	}
 	return data, nil
 }
@@ -50,7 +50,7 @@ func (c *schemaCodec) Decode(data map[string]any, dst any) error {
 		if !ok {
 			continue
 		}
-		if err := setField(rv.FieldByIndex(f.StructIndex), raw); err != nil {
+		if err := setField(fieldByIndexAlloc(rv, f.StructIndex), raw); err != nil {
 			return fmt.Errorf("codec: field %s: %w", f.Name, err)
 		}
 	}
@@ -67,7 +67,7 @@ func (c *schemaCodec) ID(v any) (string, error) {
 	if c.schema.IDField == nil {
 		return "", nil
 	}
-	return rv.FieldByIndex(c.schema.IDField.StructIndex).String(), nil
+	return fieldValue(rv, *c.schema.IDField).String(), nil
 }
 
 // SetID writes id into dst's ID field. It is a no-op if the schema declares
@@ -80,7 +80,7 @@ func (c *schemaCodec) SetID(dst any, id string) error {
 	if c.schema.IDField == nil {
 		return nil
 	}
-	rv.FieldByIndex(c.schema.IDField.StructIndex).SetString(id)
+	fieldByIndexAlloc(rv, c.schema.IDField.StructIndex).SetString(id)
 	return nil
 }
 
@@ -90,6 +90,9 @@ func (c *schemaCodec) SetID(dst any, id string) error {
 // both read from an existing value.
 func (c *schemaCodec) resolveInput(v any) (reflect.Value, error) {
 	rv := reflect.ValueOf(v)
+	if !rv.IsValid() {
+		return reflect.Value{}, fmt.Errorf("codec: cannot use nil value")
+	}
 	for rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return reflect.Value{}, fmt.Errorf("codec: cannot use nil %s", rv.Type())
@@ -115,6 +118,38 @@ func (c *schemaCodec) resolveDst(dst any) (reflect.Value, error) {
 		return reflect.Value{}, fmt.Errorf("codec: dst type %s does not match schema type %s", rv.Type(), c.schema.GoType)
 	}
 	return rv, nil
+}
+
+// fieldValue reads the field f.StructIndex points to, starting from struct
+// value v. f.StructIndex can pass through a promoted embedded pointer field
+// (the metadata parser promotes both value and pointer embeds); if any such
+// pointer along the path is nil, the field has no value to report, so
+// fieldValue returns f's zero value instead of panicking.
+func fieldValue(v reflect.Value, f schema.Field) reflect.Value {
+	fv, err := v.FieldByIndexErr(f.StructIndex)
+	if err != nil {
+		return reflect.Zero(f.GoType)
+	}
+	return fv
+}
+
+// fieldByIndexAlloc walks index from struct value v, allocating any nil
+// pointer it passes through along the way (v must be addressable, which it
+// is whenever it originates from resolveDst). This mirrors fieldValue's
+// promoted-pointer-embed support, but for writes: Decode/SetID must be able
+// to populate a field reached through a not-yet-allocated embedded pointer,
+// since the destination is often a freshly zero-valued value.
+func fieldByIndexAlloc(v reflect.Value, index []int) reflect.Value {
+	for i, x := range index {
+		if i > 0 && v.Kind() == reflect.Pointer {
+			if v.IsNil() {
+				v.Set(reflect.New(v.Type().Elem()))
+			}
+			v = v.Elem()
+		}
+		v = v.Field(x)
+	}
+	return v
 }
 
 // setField assigns raw into fv, converting between compatible types (for
