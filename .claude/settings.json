@@ -1,0 +1,33 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Edit(/.claude/skills/**)",
+      "Edit(~/.claude/skills/**)",
+      "Glob",
+      "Grep",
+      "LSP",
+      "Read",
+      "WebFetch",
+      "WebSearch",
+      "go *"
+    ],
+    "ask": [
+      "Bash(gh repo delete:*)",
+      "Bash(gh gist create:*)"
+    ],
+    "deny": []
+  },
+  "outputStyle": "Explanatory",
+  "language": "日本語",
+  "effortLevel": "xhigh",
+  "autoUpdatesChannel": "latest",
+  "theme": "light",
+  "remoteControlAtStartup": true,
+  "agentPushNotifEnabled": true,
+  "skipAutoPermissionPrompt": true
+}
