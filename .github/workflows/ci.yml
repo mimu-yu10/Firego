@@ -22,11 +22,16 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install mage
+        run: |
+          go install github.com/magefile/mage@${{ env.MAGE_VERSION }}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
       - name: Lint
-        run: go run github.com/magefile/mage@${{ env.MAGE_VERSION }} lint
+        run: mage lint
 
       - name: Build
-        run: go run github.com/magefile/mage@${{ env.MAGE_VERSION }} build
+        run: mage build
 
       - name: Test
-        run: go run github.com/magefile/mage@${{ env.MAGE_VERSION }} test
+        run: mage test
