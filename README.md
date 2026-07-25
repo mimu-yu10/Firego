@@ -44,7 +44,7 @@ Embedded structs are promoted into the parent's field list — matching `encodin
 
 ## What works today
 
-- **Schema discovery** (`internal/metadata`): builds a `schema.Schema` for a model type from its struct tags, including embedded-field promotion and ID-field validation.
+- **Schema discovery** (`internal/metadata`): builds a `schema.Schema` for a model type from its struct tags, including embedded-field promotion and ID-field validation. A `Registry` caches the resulting schema per model type and collection, so repeated lookups for the same pair skip reflection after the first call.
 - **Codec** (`codec`): given a `schema.Schema`, encodes a struct into a `map[string]any` and decodes a `map[string]any` back into a struct, converting between compatible types (for example, Firestore's `int64` into a Go `int` field) while rejecting conversions that cross incompatible kind families (e.g. string into int).
 
 These two packages are exercised by the test suite and are the foundation the client will be built on.

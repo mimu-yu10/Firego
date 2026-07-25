@@ -14,10 +14,7 @@ func Parse[T any](collection string) (*schema.Schema, error) {
 		return nil, fmt.Errorf("metadata: collection must not be empty")
 	}
 
-	modelType := reflect.TypeFor[T]()
-	for modelType.Kind() == reflect.Pointer {
-		modelType = modelType.Elem()
-	}
+	modelType := resolveModelType[T]()
 
 	if modelType.Kind() != reflect.Struct {
 		return nil, fmt.Errorf("metadata: model must be a struct")
@@ -50,6 +47,16 @@ func Parse[T any](collection string) (*schema.Schema, error) {
 	}
 
 	return result, nil
+}
+
+// resolveModelType returns the struct type underlying T, unwrapping any
+// number of pointer indirections (T, *T, **T, ...).
+func resolveModelType[T any]() reflect.Type {
+	modelType := reflect.TypeFor[T]()
+	for modelType.Kind() == reflect.Pointer {
+		modelType = modelType.Elem()
+	}
+	return modelType
 }
 
 // collectFields walks t and returns schema.Field entries for every mapped
