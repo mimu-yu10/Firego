@@ -14,19 +14,38 @@
       "Read",
       "WebFetch",
       "WebSearch",
-      "go *"
+      "Bash(gh issue view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)"
     ],
     "ask": [
-      "Bash(gh repo delete:*)",
-      "Bash(gh gist create:*)"
+      "Bash(gh gist create:*)",
+      "Bash(git push origin main:*)",
+      "Bash(git push -u origin main:*)",
+      "Bash(git push --set-upstream origin main:*)",
+      "Bash(git push origin HEAD:main:*)",
+      "Bash(git push --force origin main:*)",
+      "Bash(git push --force-with-lease origin main:*)"
     ],
-    "deny": []
+    "deny": [
+      "Bash(gh repo delete:*)",
+      "Bash(gh repo archive:*)",
+      "Bash(gh release delete:*)",
+      "Bash(gh workflow delete:*)",
+      "Bash(gh gist delete:*)",
+      "Bash(gh label delete:*)",
+      "Bash(gh secret delete:*)",
+      "Bash(gh variable delete:*)",
+      "Bash(gh ruleset delete:*)"
+    ]
   },
   "outputStyle": "Explanatory",
   "language": "日本語",
   "effortLevel": "xhigh",
   "autoUpdatesChannel": "latest",
-  "theme": "light",
+  "theme": "dark",
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true
