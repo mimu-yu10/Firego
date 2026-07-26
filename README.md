@@ -29,7 +29,7 @@ Requires Go 1.26 or later.
 Models are plain structs annotated with two optional tags:
 
 - `firestore:"name"` — sets the field's name in the Firestore document. Defaults to the Go field name. Use `firestore:"-"` to exclude a field entirely.
-- `firego:"id"` — marks the field that receives the Firestore document ID. It must be a `string` field, is never written into the document body, and is not populated by the codec itself (that wiring belongs to the client, once it exists).
+- `firego:"id"` — marks the field that receives the Firestore document ID. It must be a `string` field and is never written into the document body by `Encode`/`Decode`. `Codec.SetID`/`Codec.ID` can write and read it independently, but nothing wires that up automatically yet — that belongs to the client, once it exists.
 
 ```go
 type User struct {
