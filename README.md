@@ -29,7 +29,7 @@ Requires Go 1.26 or later.
 Models are plain structs annotated with two optional tags:
 
 - `firestore:"name"` — sets the field's name in the Firestore document. Defaults to the Go field name. Use `firestore:"-"` to exclude a field entirely.
-- `firego:"id"` — marks the field that receives the Firestore document ID. It must be a `string` field, is never written into the document body, and is not populated by the codec itself (that wiring belongs to the client, once it exists).
+- `firego:"id"` — marks the field that receives the Firestore document ID. It must be a `string` field and is never written into the document body by `Encode`/`Decode`. `Codec.SetID`/`Codec.ID` can write and read it independently, but nothing wires that up automatically yet — that belongs to the client, once it exists.
 
 ```go
 type User struct {
@@ -45,7 +45,7 @@ Embedded structs are promoted into the parent's field list — matching `encodin
 ## What works today
 
 - **Schema discovery** (`internal/metadata`): builds a `schema.Schema` for a model type from its struct tags, including embedded-field promotion and ID-field validation. A `Registry` caches the resulting schema per model type and collection, so repeated lookups for the same pair skip reflection after the first call.
-- **Codec** (`codec`): given a `schema.Schema`, encodes a struct into a `map[string]any` and decodes a `map[string]any` back into a struct, converting between compatible types (for example, Firestore's `int64` into a Go `int` field) while rejecting conversions that cross incompatible kind families (e.g. string into int).
+- **Codec** (`codec`): given a `schema.Schema`, encodes a struct into a `map[string]any` and decodes a `map[string]any` back into a struct, converting between compatible types (for example, Firestore's `int64` into a Go `int` field) while rejecting conversions that cross incompatible kind families (e.g. string into int). Also reads and writes the ID field (`ID`/`SetID`), independently of the document body.
 
 These two packages are exercised by the test suite and are the foundation the client will be built on.
 
@@ -85,7 +85,7 @@ err = firego.RunTransaction(ctx, client, func(tx *firego.Tx) error {
 |----------------------|------------------------------------------------------|------------------------------------------|
 | `schema`             | Describes the mapping between a Go type and a Firestore collection/fields | Implemented |
 | `internal/metadata`  | Builds a `schema.Schema` from struct tags via reflection | Implemented (internal — not importable outside this module) |
-| `codec`              | Encodes/decodes between structs and `map[string]any`, with type conversion | Implemented |
+| `codec`              | Encodes/decodes between structs and `map[string]any`, with type conversion and ID-field access | Implemented |
 | `client`             | Wraps `*firestore.Client`                            | Skeleton only — no read/write/query methods yet |
 | `query`              | Query building                                       | Not started |
 | Transactions          | Automatic transaction wrapping for multi-step operations | Not started |
