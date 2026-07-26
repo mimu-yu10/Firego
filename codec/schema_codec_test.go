@@ -370,3 +370,74 @@ func TestEncodeRejectsUntypedNil(t *testing.T) {
 		t.Fatal("Encode() error = nil, want error")
 	}
 }
+
+// unexportedPtrBase and unexportedPtrEmbedModel exercise promotion through
+// an *unexported* anonymous pointer struct. The metadata parser promotes
+// unexported embeds just like exported ones, but reflect can never write
+// through an unexported field regardless of which package is asking, so
+// writes (Decode, SetID) must fail cleanly instead of panicking. Reads
+// (Encode, ID) are unaffected — reflect permits reading a value obtained via
+// an unexported field, just not setting it.
+type unexportedPtrBase struct {
+	ID  string `firego:"id" firestore:"-"`
+	Rev string `firestore:"rev"`
+}
+
+type unexportedPtrEmbedModel struct {
+	*unexportedPtrBase
+	Name string `firestore:"name"`
+}
+
+func mustParseUnexportedPtrEmbed(t *testing.T) *schemaCodec {
+	t.Helper()
+	s, err := metadata.Parse[unexportedPtrEmbedModel]("items")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	return &schemaCodec{schema: s}
+}
+
+func TestDecodeRejectsUnexportedEmbeddedPointer(t *testing.T) {
+	c := mustParseUnexportedPtrEmbed(t)
+
+	var got unexportedPtrEmbedModel
+	if err := c.Decode(map[string]any{"rev": "r1", "name": "x"}, &got); err == nil {
+		t.Fatal("Decode() error = nil, want error")
+	}
+}
+
+func TestSetIDRejectsUnexportedEmbeddedPointer(t *testing.T) {
+	c := mustParseUnexportedPtrEmbed(t)
+
+	var got unexportedPtrEmbedModel
+	if err := c.SetID(&got, "abc"); err == nil {
+		t.Fatal("SetID() error = nil, want error")
+	}
+}
+
+func TestEncodeHandlesUnexportedEmbeddedPointer(t *testing.T) {
+	c := mustParseUnexportedPtrEmbed(t)
+
+	got, err := c.Encode(unexportedPtrEmbedModel{
+		unexportedPtrBase: &unexportedPtrBase{Rev: "r1"},
+		Name:              "x",
+	})
+	if err != nil {
+		t.Fatalf("Encode() error = %v", err)
+	}
+	if got["rev"] != "r1" {
+		t.Errorf("rev = %v, want r1", got["rev"])
+	}
+}
+
+func TestIDHandlesUnexportedEmbeddedPointer(t *testing.T) {
+	c := mustParseUnexportedPtrEmbed(t)
+
+	got, err := c.ID(unexportedPtrEmbedModel{unexportedPtrBase: &unexportedPtrBase{ID: "abc"}})
+	if err != nil {
+		t.Fatalf("ID() error = %v", err)
+	}
+	if got != "abc" {
+		t.Errorf("ID() = %q, want %q", got, "abc")
+	}
+}

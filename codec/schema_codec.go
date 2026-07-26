@@ -50,7 +50,11 @@ func (c *schemaCodec) Decode(data map[string]any, dst any) error {
 		if !ok {
 			continue
 		}
-		if err := setField(fieldByIndexAlloc(rv, f.StructIndex), raw); err != nil {
+		fv, err := fieldByIndexAlloc(rv, f.StructIndex)
+		if err != nil {
+			return fmt.Errorf("codec: field %s: %w", f.Name, err)
+		}
+		if err := setField(fv, raw); err != nil {
 			return fmt.Errorf("codec: field %s: %w", f.Name, err)
 		}
 	}
@@ -80,7 +84,11 @@ func (c *schemaCodec) SetID(dst any, id string) error {
 	if c.schema.IDField == nil {
 		return nil
 	}
-	fieldByIndexAlloc(rv, c.schema.IDField.StructIndex).SetString(id)
+	fv, err := fieldByIndexAlloc(rv, c.schema.IDField.StructIndex)
+	if err != nil {
+		return fmt.Errorf("codec: field %s: %w", c.schema.IDField.Name, err)
+	}
+	fv.SetString(id)
 	return nil
 }
 
@@ -139,17 +147,28 @@ func fieldValue(v reflect.Value, f schema.Field) reflect.Value {
 // promoted-pointer-embed support, but for writes: Decode/SetID must be able
 // to populate a field reached through a not-yet-allocated embedded pointer,
 // since the destination is often a freshly zero-valued value.
-func fieldByIndexAlloc(v reflect.Value, index []int) reflect.Value {
+//
+// The metadata parser promotes fields through unexported anonymous structs
+// as well as exported ones (matching encoding/json), but reflect can never
+// write through an unexported field, in any package — so fieldByIndexAlloc
+// returns an error instead of panicking when it meets one.
+func fieldByIndexAlloc(v reflect.Value, index []int) (reflect.Value, error) {
 	for i, x := range index {
 		if i > 0 && v.Kind() == reflect.Pointer {
 			if v.IsNil() {
+				if !v.CanSet() {
+					return reflect.Value{}, fmt.Errorf("field is promoted through an unexported embedded type and cannot be written")
+				}
 				v.Set(reflect.New(v.Type().Elem()))
 			}
 			v = v.Elem()
 		}
 		v = v.Field(x)
 	}
-	return v
+	if !v.CanSet() {
+		return reflect.Value{}, fmt.Errorf("field is promoted through an unexported embedded type and cannot be written")
+	}
+	return v, nil
 }
 
 // setField assigns raw into fv, converting between compatible types (for
