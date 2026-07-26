@@ -16,8 +16,8 @@ import (
 // field tagged firego:"id".
 var ErrNoIDField = errors.New("firego: model has no ID field")
 
-// ErrEmptyID is returned by (*CollectionRef[T]).Set when the model's ID
-// field is empty.
+// ErrEmptyID is returned by Get when called with an empty id, and by Set
+// when the model's ID field is empty.
 var ErrEmptyID = errors.New("firego: ID field is empty")
 
 // ErrInvalidID is returned by Get and Set when id contains a "/". Firestore
@@ -81,10 +81,15 @@ func Collection[T any](c *client.Client, name string) (*CollectionRef[T], error)
 // model declares an ID field, it is populated with id.
 //
 // If the document does not exist, Get returns an error satisfying
-// errors.Is(err, ErrNotFound).
+// errors.Is(err, ErrNotFound). It returns an error satisfying
+// errors.Is(err, ErrEmptyID) or errors.Is(err, ErrInvalidID) if id is empty
+// or contains a "/", without making a request.
 func (r *CollectionRef[T]) Get(ctx context.Context, id string) (T, error) {
 	var v T
 
+	if id == "" {
+		return v, fmt.Errorf("firego: get %s: %w", r.schema.Collection, ErrEmptyID)
+	}
 	if err := validateID(id); err != nil {
 		return v, fmt.Errorf("firego: get %s/%s: %w", r.schema.Collection, id, err)
 	}

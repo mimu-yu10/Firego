@@ -211,3 +211,13 @@ func TestSetRejectsIDContainingSlash(t *testing.T) {
 		t.Errorf("Set() wrote to the store despite the invalid ID: %v", store.docs)
 	}
 }
+
+func TestGetRejectsEmptyID(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	_, err := ref.Get(context.Background(), "")
+	if !errors.Is(err, ErrEmptyID) {
+		t.Fatalf("Get() error = %v, want errors.Is(err, ErrEmptyID)", err)
+	}
+}
