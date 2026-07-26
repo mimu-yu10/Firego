@@ -188,3 +188,26 @@ func TestSetThenGetRoundTrip(t *testing.T) {
 		t.Errorf("round trip = %+v, want %+v", got, want)
 	}
 }
+
+func TestGetRejectsIDContainingSlash(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	_, err := ref.Get(context.Background(), "a/b")
+	if !errors.Is(err, ErrInvalidID) {
+		t.Fatalf("Get() error = %v, want errors.Is(err, ErrInvalidID)", err)
+	}
+}
+
+func TestSetRejectsIDContainingSlash(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	err := ref.Set(context.Background(), testUser{ID: "a/b", Name: "Alice"})
+	if !errors.Is(err, ErrInvalidID) {
+		t.Fatalf("Set() error = %v, want errors.Is(err, ErrInvalidID)", err)
+	}
+	if len(store.docs) != 0 {
+		t.Errorf("Set() wrote to the store despite the invalid ID: %v", store.docs)
+	}
+}

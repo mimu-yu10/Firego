@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/mimu-y10/firego/client"
 	"github.com/mimu-y10/firego/codec"
@@ -18,6 +19,21 @@ var ErrNoIDField = errors.New("firego: model has no ID field")
 // ErrEmptyID is returned by (*CollectionRef[T]).Set when the model's ID
 // field is empty.
 var ErrEmptyID = errors.New("firego: ID field is empty")
+
+// ErrInvalidID is returned by Get and Set when id contains a "/". Firestore
+// reserves "/" as the separator between a collection and its documents, so
+// passing it through unvalidated could address a different document (or an
+// invalid path) than the caller intended.
+var ErrInvalidID = errors.New(`firego: document ID must not contain "/"`)
+
+// validateID reports an error if id is not a single, legal Firestore
+// document-ID path segment.
+func validateID(id string) error {
+	if strings.Contains(id, "/") {
+		return ErrInvalidID
+	}
+	return nil
+}
 
 // docStore is the subset of *client.Client that CollectionRef needs. Its
 // purpose is testability: CollectionRef's orchestration logic (encode and
@@ -69,6 +85,10 @@ func Collection[T any](c *client.Client, name string) (*CollectionRef[T], error)
 func (r *CollectionRef[T]) Get(ctx context.Context, id string) (T, error) {
 	var v T
 
+	if err := validateID(id); err != nil {
+		return v, fmt.Errorf("firego: get %s/%s: %w", r.schema.Collection, id, err)
+	}
+
 	data, err := r.store.GetDocument(ctx, r.schema.Collection, id)
 	if err != nil {
 		return v, fmt.Errorf("firego: get %s/%s: %w", r.schema.Collection, id, err)
@@ -100,6 +120,9 @@ func (r *CollectionRef[T]) Set(ctx context.Context, v T) error {
 	}
 	if id == "" {
 		return fmt.Errorf("firego: %s.%s: %w", r.schema.Name, r.schema.IDField.Name, ErrEmptyID)
+	}
+	if err := validateID(id); err != nil {
+		return fmt.Errorf("firego: set %s/%s: %w", r.schema.Collection, id, err)
 	}
 
 	data, err := r.codec.Encode(v)
