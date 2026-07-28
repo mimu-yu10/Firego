@@ -8,7 +8,9 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"github.com/mimu-y10/firego/internal/metadata"
+	"github.com/mimu-y10/firego/query"
 	"github.com/mimu-y10/firego/schema"
+	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -82,6 +84,43 @@ func (c *Client) SetDocument(ctx context.Context, collection, id string, data ma
 		return fmt.Errorf("client: set %s/%s: %w", collection, id, err)
 	}
 	return nil
+}
+
+// Document is one result of a QueryDocuments call: a document's ID paired
+// with its data. Unlike GetDocument, QueryDocuments cannot rely on the
+// caller already knowing each result's ID, so it must return the ID
+// alongside the data instead.
+type Document struct {
+	ID   string
+	Data map[string]any
+}
+
+// QueryDocuments returns every document in collection that matches all of
+// filters (combined with AND).
+func (c *Client) QueryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]Document, error) {
+	q := c.firestore.Collection(collection).Query
+	for _, f := range filters {
+		// WherePath (not Where) so a FirestoreName containing "." — a legal,
+		// if unusual, single field name — is matched literally instead of
+		// being split into a nested-field path.
+		q = q.WherePath(firestore.FieldPath{f.Field}, f.Op, f.Value)
+	}
+
+	iter := q.Documents(ctx)
+	defer iter.Stop()
+
+	var docs []Document
+	for {
+		snap, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("client: query %s: %w", collection, err)
+		}
+		docs = append(docs, Document{ID: snap.Ref.ID, Data: snap.Data()})
+	}
+	return docs, nil
 }
 
 // Close releases resources (such as open gRPC connections) held by the
