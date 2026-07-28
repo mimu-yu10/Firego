@@ -9,6 +9,7 @@ import (
 
 	"github.com/mimu-y10/firego/client"
 	"github.com/mimu-y10/firego/codec"
+	"github.com/mimu-y10/firego/query"
 	"github.com/mimu-y10/firego/schema"
 )
 
@@ -42,6 +43,7 @@ func validateID(id string) error {
 type docStore interface {
 	GetDocument(ctx context.Context, collection, id string) (map[string]any, error)
 	SetDocument(ctx context.Context, collection, id string, data map[string]any) error
+	QueryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]client.Document, error)
 }
 
 var _ docStore = (*client.Client)(nil)
