@@ -100,7 +100,10 @@ type Document struct {
 func (c *Client) QueryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]Document, error) {
 	q := c.firestore.Collection(collection).Query
 	for _, f := range filters {
-		q = q.Where(f.Field, f.Op, f.Value)
+		// WherePath (not Where) so a FirestoreName containing "." — a legal,
+		// if unusual, single field name — is matched literally instead of
+		// being split into a nested-field path.
+		q = q.WherePath(firestore.FieldPath{f.Field}, f.Op, f.Value)
 	}
 
 	iter := q.Documents(ctx)
