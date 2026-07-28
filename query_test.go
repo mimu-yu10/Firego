@@ -116,3 +116,33 @@ func TestDocumentsPropagatesStoreError(t *testing.T) {
 	}
 }
 
+type embeddedCategory struct {
+	Category string `firestore:"embedded_category"`
+}
+
+// testShadowedField declares a top-level Category field alongside an
+// embedded struct that also has a Category field, so Where("Category", ...)
+// exercises schema.FieldByName's use of Go's field-selection rules
+// end-to-end: it must resolve to the top-level field, not the promoted one.
+type testShadowedField struct {
+	embeddedCategory
+	ID       string `firego:"id" firestore:"-"`
+	Category string `firestore:"top_category"`
+}
+
+func TestWhereResolvesShadowedFieldToTopLevel(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testShadowedField](t, store, "items")
+
+	if _, err := ref.Where("Category", "x").Documents(context.Background()); err != nil {
+		t.Fatalf("Documents() error = %v", err)
+	}
+
+	if len(store.lastQueryFilters) != 1 {
+		t.Fatalf("QueryDocuments filters = %v, want exactly 1 filter", store.lastQueryFilters)
+	}
+	if got := store.lastQueryFilters[0].Field; got != "top_category" {
+		t.Errorf("filter field = %q, want %q (the top-level field, not the one promoted from embeddedCategory)", got, "top_category")
+	}
+}
+
