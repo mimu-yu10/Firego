@@ -2,7 +2,10 @@
 // collections, documents, and fields.
 package schema
 
-import "reflect"
+import (
+	"reflect"
+	"slices"
+)
 
 // Schema contains the metadata needed to map one Go struct to a Firestore
 // collection and its documents.
@@ -45,4 +48,26 @@ type Field struct {
 
 	// IsID reports whether this field receives the Firestore document ID.
 	IsID bool
+}
+
+// FieldByName returns the field named name — the Go struct field name, not
+// its FirestoreName — and reports whether it was found.
+//
+// name is resolved using Go's own field-selection rules (via GoType's
+// reflect.Type.FieldByName), not by a plain search through Fields: when a
+// promoted field from an embedded struct shares its name with another field,
+// Go's shallower-wins-and-ambiguous-loses rule decides which one name refers
+// to, and a plain linear search over Fields (in promotion order) would not
+// reliably agree with it.
+func (s *Schema) FieldByName(name string) (*Field, bool) {
+	sf, ok := s.GoType.FieldByName(name)
+	if !ok {
+		return nil, false
+	}
+	for i := range s.Fields {
+		if slices.Equal(s.Fields[i].StructIndex, sf.Index) {
+			return &s.Fields[i], true
+		}
+	}
+	return nil, false
 }
