@@ -46,3 +46,14 @@ type Field struct {
 	// IsID reports whether this field receives the Firestore document ID.
 	IsID bool
 }
+
+// FieldByName returns the field named name — the Go struct field name, not
+// its FirestoreName — and reports whether it was found.
+func (s *Schema) FieldByName(name string) (*Field, bool) {
+	for i := range s.Fields {
+		if s.Fields[i].Name == name {
+			return &s.Fields[i], true
+		}
+	}
+	return nil, false
+}

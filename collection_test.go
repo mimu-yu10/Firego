@@ -3,11 +3,14 @@ package firego
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/mimu-y10/firego/client"
 	"github.com/mimu-y10/firego/codec"
 	"github.com/mimu-y10/firego/internal/metadata"
+	"github.com/mimu-y10/firego/query"
 )
 
 type testUser struct {
@@ -27,12 +30,16 @@ type testItem struct {
 type fakeStore struct {
 	docs map[string]map[string]any
 
-	getErr error // when set, GetDocument always returns this error
-	setErr error // when set, SetDocument always returns this error
+	getErr   error // when set, GetDocument always returns this error
+	setErr   error // when set, SetDocument always returns this error
+	queryErr error // when set, QueryDocuments always returns this error
 
 	lastSetCollection string
 	lastSetID         string
 	lastSetData       map[string]any
+
+	lastQueryCollection string
+	lastQueryFilters    []query.Filter
 }
 
 func newFakeStore() *fakeStore {
@@ -61,6 +68,37 @@ func (f *fakeStore) SetDocument(_ context.Context, collection, id string, data m
 	f.lastSetData = data
 	f.docs[f.key(collection, id)] = data
 	return nil
+}
+
+func (f *fakeStore) QueryDocuments(_ context.Context, collection string, filters []query.Filter) ([]client.Document, error) {
+	f.lastQueryCollection = collection
+	f.lastQueryFilters = filters
+	if f.queryErr != nil {
+		return nil, f.queryErr
+	}
+
+	prefix := collection + "/"
+	var docs []client.Document
+	for key, data := range f.docs {
+		id, ok := strings.CutPrefix(key, prefix)
+		if !ok {
+			continue
+		}
+		if matchesAllFilters(data, filters) {
+			docs = append(docs, client.Document{ID: id, Data: data})
+		}
+	}
+	sort.Slice(docs, func(i, j int) bool { return docs[i].ID < docs[j].ID })
+	return docs, nil
+}
+
+func matchesAllFilters(data map[string]any, filters []query.Filter) bool {
+	for _, f := range filters {
+		if data[f.Field] != f.Value {
+			return false
+		}
+	}
+	return true
 }
 
 var _ docStore = (*fakeStore)(nil)
