@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/mimu-y10/firego/client"
 	"github.com/mimu-y10/firego/codec"
 	"github.com/mimu-y10/firego/internal/metadata"
 )
@@ -47,7 +46,7 @@ func (f *fakeStore) GetDocument(_ context.Context, collection, id string) (map[s
 	}
 	data, ok := f.docs[f.key(collection, id)]
 	if !ok {
-		return nil, client.ErrNotFound
+		return nil, ErrNotFound
 	}
 	return data, nil
 }
@@ -100,9 +99,6 @@ func TestGetPropagatesNotFound(t *testing.T) {
 	ref := newTestRef[testUser](t, store, "users")
 
 	_, err := ref.Get(context.Background(), "missing")
-	if !errors.Is(err, client.ErrNotFound) {
-		t.Fatalf("Get() error = %v, want errors.Is(err, client.ErrNotFound)", err)
-	}
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get() error = %v, want errors.Is(err, firego.ErrNotFound)", err)
 	}

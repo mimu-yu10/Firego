@@ -1,4 +1,4 @@
-package client
+package firego
 
 import (
 	"errors"
@@ -15,26 +15,10 @@ func TestIsNotFound(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{
-			name: "not found status",
-			err:  status.Error(codes.NotFound, `"users/missing" not found`),
-			want: true,
-		},
-		{
-			name: "different status code",
-			err:  status.Error(codes.PermissionDenied, "denied"),
-			want: false,
-		},
-		{
-			name: "plain error, no status",
-			err:  errors.New("boom"),
-			want: false,
-		},
-		{
-			name: "nil error",
-			err:  nil,
-			want: false,
-		},
+		{name: "not found status", err: status.Error(codes.NotFound, `"users/missing" not found`), want: true},
+		{name: "different status code", err: status.Error(codes.PermissionDenied, "denied"), want: false},
+		{name: "plain error", err: errors.New("boom"), want: false},
+		{name: "nil error", err: nil, want: false},
 	}
 
 	for _, tt := range tests {
@@ -58,9 +42,6 @@ func TestCloneSchemaDetachesFromOriginal(t *testing.T) {
 	original.IDField = &original.Fields[0]
 
 	clone := cloneSchema(original)
-
-	// Mutate the clone every way a careless caller might, then confirm the
-	// cached original (and any other clone taken from it) is untouched.
 	clone.Fields[0].Name = "mutated"
 	clone.Fields[1].StructIndex[0] = 999
 	clone.IDField.FirestoreName = "mutated"
@@ -77,27 +58,16 @@ func TestCloneSchemaDetachesFromOriginal(t *testing.T) {
 }
 
 func TestCloneSchemaIDFieldPointsIntoTheClone(t *testing.T) {
-	original := &schema.Schema{
-		Fields: []schema.Field{
-			{Name: "ID", IsID: true, StructIndex: []int{0}},
-		},
-	}
+	original := &schema.Schema{Fields: []schema.Field{{Name: "ID", IsID: true, StructIndex: []int{0}}}}
 	original.IDField = &original.Fields[0]
-
 	clone := cloneSchema(original)
-
 	if clone.IDField != &clone.Fields[0] {
 		t.Error("clone.IDField does not point into clone.Fields")
 	}
 }
 
 func TestCloneSchemaWithoutIDField(t *testing.T) {
-	original := &schema.Schema{
-		Fields: []schema.Field{
-			{Name: "Value", StructIndex: []int{0}},
-		},
-	}
-
+	original := &schema.Schema{Fields: []schema.Field{{Name: "Value", StructIndex: []int{0}}}}
 	if clone := cloneSchema(original); clone.IDField != nil {
 		t.Errorf("IDField = %v, want nil", clone.IDField)
 	}
