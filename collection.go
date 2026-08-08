@@ -26,11 +26,32 @@ var ErrEmptyID = errors.New("firego: ID field is empty")
 // invalid path) than the caller intended.
 var ErrInvalidID = errors.New(`firego: document ID must not contain "/"`)
 
+// ErrInvalidClient is returned when Collection receives a nil or
+// uninitialized Client.
+var ErrInvalidClient = errors.New("firego: client is nil or uninitialized")
+
+// ErrInvalidCollectionPath is returned when a collection path is empty,
+// contains an empty segment, or does not end at a collection.
+var ErrInvalidCollectionPath = errors.New("firego: invalid collection path")
+
 // validateID reports an error if id is not a single, legal Firestore
 // document-ID path segment.
 func validateID(id string) error {
 	if strings.Contains(id, "/") {
 		return ErrInvalidID
+	}
+	return nil
+}
+
+func validateCollectionPath(path string) error {
+	segments := strings.Split(path, "/")
+	if len(segments)%2 == 0 {
+		return ErrInvalidCollectionPath
+	}
+	for _, segment := range segments {
+		if segment == "" {
+			return ErrInvalidCollectionPath
+		}
 	}
 	return nil
 }
@@ -62,6 +83,12 @@ type CollectionRef[T any] struct {
 // whose documents map to Go values of type T. T must be a struct type, not
 // a pointer — pass User, not *User.
 func Collection[T any](c *Client, name string) (*CollectionRef[T], error) {
+	if c == nil || c.firestore == nil || c.registry == nil {
+		return nil, ErrInvalidClient
+	}
+	if err := validateCollectionPath(name); err != nil {
+		return nil, fmt.Errorf("firego: collection %q: %w", name, err)
+	}
 	if t := reflect.TypeFor[T](); t.Kind() == reflect.Pointer {
 		return nil, fmt.Errorf("firego: Collection[T]: T must not be a pointer type, got %s", t)
 	}

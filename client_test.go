@@ -12,13 +12,26 @@ import (
 
 func TestNewClientFromFirestore(t *testing.T) {
 	fs := &firestore.Client{}
-	client := NewClientFromFirestore(fs)
+	client, err := NewClientFromFirestore(fs)
+	if err != nil {
+		t.Fatalf("NewClientFromFirestore() error = %v", err)
+	}
 
 	if client.firestore != fs {
 		t.Error("NewClientFromFirestore() did not preserve the underlying Firestore client")
 	}
 	if client.registry == nil {
 		t.Error("NewClientFromFirestore() did not initialize the schema registry")
+	}
+}
+
+func TestNewClientFromFirestoreRejectsNil(t *testing.T) {
+	client, err := NewClientFromFirestore(nil)
+	if client != nil {
+		t.Errorf("NewClientFromFirestore(nil) client = %v, want nil", client)
+	}
+	if !errors.Is(err, ErrNilFirestoreClient) {
+		t.Fatalf("NewClientFromFirestore(nil) error = %v, want errors.Is(err, ErrNilFirestoreClient)", err)
 	}
 }
 
