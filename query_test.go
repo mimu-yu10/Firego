@@ -151,6 +151,62 @@ func TestQueryIsImmutable(t *testing.T) {
 	}
 }
 
+func TestOrderByResolvesFieldAndDirection(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	if _, err := ref.OrderBy("Name", query.Desc).Documents(context.Background()); err != nil {
+		t.Fatalf("Documents() error = %v", err)
+	}
+	if len(store.lastQueryOrders) != 1 {
+		t.Fatalf("queryDocuments orders = %v, want exactly 1 order", store.lastQueryOrders)
+	}
+	want := query.Order{Field: "name", Direction: query.Desc}
+	if got := store.lastQueryOrders[0]; got != want {
+		t.Errorf("queryDocuments order = %+v, want %+v", got, want)
+	}
+}
+
+func TestOrderByIsImmutable(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+	base := ref.Where("Age", 30)
+
+	if _, err := base.OrderBy("Name", query.Asc).Documents(context.Background()); err != nil {
+		t.Fatalf("ordered Documents() error = %v", err)
+	}
+	if _, err := base.Documents(context.Background()); err != nil {
+		t.Fatalf("base Documents() error = %v", err)
+	}
+	if len(store.lastQueryOrders) != 0 {
+		t.Errorf("base query orders = %v, want none", store.lastQueryOrders)
+	}
+}
+
+func TestOrderByRejectsInvalidRequests(t *testing.T) {
+	tests := []struct {
+		name      string
+		field     string
+		direction query.Direction
+		want      error
+	}{
+		{name: "unknown field", field: "Missing", direction: query.Asc, want: ErrUnknownField},
+		{name: "ID field", field: "ID", direction: query.Asc, want: ErrIDFieldNotOrderable},
+		{name: "direction", field: "Age", direction: query.Direction("sideways"), want: ErrUnsupportedDirection},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeStore()
+			ref := newTestRef[testUser](t, store, "users")
+			_, err := ref.OrderBy(tt.field, tt.direction).Documents(context.Background())
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("Documents() error = %v, want errors.Is(err, %v)", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestDocumentsRejectsUnknownField(t *testing.T) {
 	store := newFakeStore()
 	ref := newTestRef[testUser](t, store, "users")

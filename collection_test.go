@@ -52,6 +52,7 @@ type fakeStore struct {
 
 	lastQueryCollection string
 	lastQueryFilters    []query.Filter
+	lastQueryOrders     []query.Order
 }
 
 func newFakeStore() *fakeStore {
@@ -116,9 +117,10 @@ func (f *fakeStore) updateDocument(_ context.Context, collection, id string, upd
 	return nil
 }
 
-func (f *fakeStore) queryDocuments(_ context.Context, collection string, filters []query.Filter) ([]document, error) {
+func (f *fakeStore) queryDocuments(_ context.Context, collection string, filters []query.Filter, orders []query.Order) ([]document, error) {
 	f.lastQueryCollection = collection
 	f.lastQueryFilters = filters
+	f.lastQueryOrders = orders
 	if f.queryErr != nil {
 		return nil, f.queryErr
 	}

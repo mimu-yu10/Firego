@@ -16,19 +16,27 @@ var ErrUnknownField = errors.New("firego: unknown field")
 // Firego does not support.
 var ErrUnsupportedOperator = errors.New("firego: unsupported query operator")
 
+// ErrUnsupportedDirection is returned when OrderBy receives a direction that
+// Firego does not support.
+var ErrUnsupportedDirection = errors.New("firego: unsupported query direction")
+
 // ErrIDFieldNotQueryable is returned by (*Query[T]).Documents when a Where
 // call named the model's ID field. A document's ID is not part of its
 // Firestore data, so it cannot be filtered on — use Get with the ID
 // directly instead.
 var ErrIDFieldNotQueryable = errors.New("firego: ID field cannot be queried, use Get instead")
 
+// ErrIDFieldNotOrderable is returned when OrderBy names the model's ID field.
+var ErrIDFieldNotOrderable = errors.New("firego: ID field ordering is not supported")
+
 // Query is a Firestore query against a CollectionRef[T]'s collection, built
-// by chaining Where calls. A Query is immutable: every Where call returns a
-// new Query rather than modifying the receiver, so a base Query can be
-// safely reused to build several different queries.
+// by chaining filters and ordering. A Query is immutable: every builder
+// returns a new Query rather than modifying the receiver, so a base Query can
+// be safely reused to build several different queries.
 type Query[T any] struct {
 	ref     *CollectionRef[T]
 	filters []query.Filter
+	orders  []query.Order
 }
 
 // Where returns a Query that additionally requires field to equal value.
@@ -60,13 +68,32 @@ func (q *Query[T]) WhereOp(field string, op query.Operator, value any) *Query[T]
 	return q.appendFilter(field, op, value)
 }
 
+// OrderBy starts a Query ordered by field in direction. field names a Go
+// struct field and is resolved to its Firestore name when the query runs.
+func (r *CollectionRef[T]) OrderBy(field string, direction query.Direction) *Query[T] {
+	return (&Query[T]{ref: r}).appendOrder(field, direction)
+}
+
+// OrderBy returns a Query with an additional ordering, leaving q unmodified.
+// Multiple calls apply ordering from first to last.
+func (q *Query[T]) OrderBy(field string, direction query.Direction) *Query[T] {
+	return q.appendOrder(field, direction)
+}
+
 // appendFilter returns a new Query whose filters are q's filters plus one
 // comparison, leaving q itself unmodified.
 func (q *Query[T]) appendFilter(field string, op query.Operator, value any) *Query[T] {
 	filters := make([]query.Filter, len(q.filters), len(q.filters)+1)
 	copy(filters, q.filters)
 	filters = append(filters, query.Filter{Field: field, Op: op, Value: value})
-	return &Query[T]{ref: q.ref, filters: filters}
+	return &Query[T]{ref: q.ref, filters: filters, orders: q.orders}
+}
+
+func (q *Query[T]) appendOrder(field string, direction query.Direction) *Query[T] {
+	orders := make([]query.Order, len(q.orders), len(q.orders)+1)
+	copy(orders, q.orders)
+	orders = append(orders, query.Order{Field: field, Direction: direction})
+	return &Query[T]{ref: q.ref, filters: q.filters, orders: orders}
 }
 
 // Documents runs the query and decodes every matching document into a T,
@@ -93,8 +120,22 @@ func (q *Query[T]) Documents(ctx context.Context) ([]T, error) {
 		}
 		resolved[i] = query.Filter{Field: sf.FirestoreName, Op: f.Op, Value: f.Value}
 	}
+	resolvedOrders := make([]query.Order, len(q.orders))
+	for i, order := range q.orders {
+		if !order.Direction.IsSupported() {
+			return nil, fmt.Errorf("firego: query %s: direction %q: %w", r.schema.Collection, order.Direction, ErrUnsupportedDirection)
+		}
+		sf, ok := r.schema.FieldByName(order.Field)
+		if !ok {
+			return nil, fmt.Errorf("firego: query %s: order field %q: %w", r.schema.Collection, order.Field, ErrUnknownField)
+		}
+		if sf.IsID {
+			return nil, fmt.Errorf("firego: query %s: order field %q: %w", r.schema.Collection, order.Field, ErrIDFieldNotOrderable)
+		}
+		resolvedOrders[i] = query.Order{Field: sf.FirestoreName, Direction: order.Direction}
+	}
 
-	docs, err := r.store.queryDocuments(ctx, r.schema.Collection, resolved)
+	docs, err := r.store.queryDocuments(ctx, r.schema.Collection, resolved, resolvedOrders)
 	if err != nil {
 		return nil, fmt.Errorf("firego: query %s: %w", r.schema.Collection, err)
 	}
