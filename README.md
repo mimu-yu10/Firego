@@ -47,7 +47,7 @@ Embedded structs are promoted into the parent's field list — matching `encodin
 - **Schema discovery** (`internal/metadata`): builds a `schema.Schema` for a model type from its struct tags, including embedded-field promotion and ID-field validation. A `Registry` caches the resulting schema per model type and collection, so repeated lookups for the same pair skip reflection after the first call.
 - **Codec** (`codec`): given a `schema.Schema`, encodes a struct into a `map[string]any` and decodes a `map[string]any` back into a struct, converting between compatible types (for example, Firestore's `int64` into a Go `int` field) while rejecting conversions that cross incompatible kind families (e.g. string into int). Also reads and writes the ID field (`ID`/`SetID`), independently of the document body.
 - **Query** (`query`): the `Filter` type shared by the root package's query implementation — a Firestore field name, operator, and value. Currently only the equality operator (`query.Equal`) is used.
-- **Firego** (`firego`, the top-level package): the public entry point and Firestore client wrapper. `NewClient` creates a client with a per-model schema cache; `Collection[T]` returns a type-safe `CollectionRef[T]` whose `Get`, `Set`, and `Create` methods handle encoding, decoding, and ID-field wiring so callers only deal with plain structs. `CollectionRef[T].Where` starts a `Query[T]`, an immutable, chainable equality filter that `Documents` runs, decoding every match into a `[]T` with each result's ID field populated the same way `Get` populates it.
+- **Firego** (`firego`, the top-level package): the public entry point and Firestore client wrapper. `NewClient` creates a client with a per-model schema cache; `Collection[T]` returns a type-safe `CollectionRef[T]` whose `Get`, `Set`, `Create`, and `Delete` methods handle encoding, decoding, and ID-field wiring so callers only deal with plain structs. `CollectionRef[T].Where` starts a `Query[T]`, an immutable, chainable equality filter that `Documents` runs, decoding every match into a `[]T` with each result's ID field populated the same way `Get` populates it.
 
 These packages are exercised by the test suite. `Get`/`Set`/`Where`'s encode/decode/error-propagation logic is covered end-to-end against an in-memory fake; the thin adapter that calls the real Firestore SDK is not yet covered by an automated test beyond its NotFound-mapping logic, since no Firestore emulator is available in this environment yet.
 
@@ -79,6 +79,9 @@ err = users.Set(ctx, User{ID: "user-123", Name: "Alice", Age: 30})
 // Create requires the document not to exist already.
 err = users.Create(ctx, User{ID: "user-456", Name: "Bob", Age: 24})
 
+// Delete is idempotent; deleting a missing document also succeeds.
+err = users.Delete(ctx, "user-456")
+
 // Where filters on a Go struct field name (not its Firestore name) and
 // matches on equality. Chained Where calls combine with AND. Each result's
 // ID field is populated the same way Get populates it.
@@ -109,7 +112,7 @@ err = firego.RunTransaction(ctx, client, func(tx *firego.Tx) error {
 | `schema`             | Describes the mapping between a Go type and a Firestore collection/fields | Implemented |
 | `internal/metadata`  | Builds a `schema.Schema` from struct tags via reflection | Implemented (internal — not importable outside this module) |
 | `codec`              | Encodes/decodes between structs and `map[string]any`, with type conversion and ID-field access | Implemented |
-| `firego` (top-level) | Firestore client wrapper and public API: `NewClient`, `Collection[T]`, `Get`, `Set`, `Create`, `Where`/`Documents` | Implemented |
+| `firego` (top-level) | Firestore client wrapper and public API: `NewClient`, `Collection[T]`, `Get`, `Set`, `Create`, `Delete`, `Where`/`Documents` | Implemented |
 | `query`              | Query building                                       | Equality filters only (`Filter`, `Equal`); ordering, ranges, and pagination not started |
 | Transactions          | Automatic transaction wrapping for multi-step operations | Not started |
 

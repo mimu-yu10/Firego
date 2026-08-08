@@ -64,6 +64,7 @@ type docStore interface {
 	getDocument(ctx context.Context, collection, id string) (map[string]any, error)
 	setDocument(ctx context.Context, collection, id string, data map[string]any) error
 	createDocument(ctx context.Context, collection, id string, data map[string]any) error
+	deleteDocument(ctx context.Context, collection, id string) error
 	queryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]document, error)
 }
 
@@ -194,6 +195,21 @@ func (r *CollectionRef[T]) Create(ctx context.Context, v T) error {
 	}
 	if err := r.store.createDocument(ctx, r.schema.Collection, id, data); err != nil {
 		return fmt.Errorf("firego: create %s/%s: %w", r.schema.Collection, id, err)
+	}
+	return nil
+}
+
+// Delete removes the document with id. Deleting a document that does not
+// exist succeeds, matching Firestore's idempotent delete semantics.
+func (r *CollectionRef[T]) Delete(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("firego: delete %s: %w", r.schema.Collection, ErrEmptyID)
+	}
+	if err := validateID(id); err != nil {
+		return fmt.Errorf("firego: delete %s/%s: %w", r.schema.Collection, id, err)
+	}
+	if err := r.store.deleteDocument(ctx, r.schema.Collection, id); err != nil {
+		return fmt.Errorf("firego: delete %s/%s: %w", r.schema.Collection, id, err)
 	}
 	return nil
 }

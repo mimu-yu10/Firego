@@ -110,6 +110,13 @@ func (c *Client) createDocument(ctx context.Context, collection, id string, data
 	return nil
 }
 
+func (c *Client) deleteDocument(ctx context.Context, collection, id string) error {
+	if _, err := c.firestore.Collection(collection).Doc(id).Delete(ctx); err != nil {
+		return fmt.Errorf("client: delete %s/%s: %w", collection, id, err)
+	}
+	return nil
+}
+
 // document is one result of a queryDocuments call: a document ID and its data.
 type document struct {
 	ID   string

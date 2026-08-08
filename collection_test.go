@@ -33,6 +33,7 @@ type fakeStore struct {
 	getErr   error // when set, getDocument always returns this error
 	setErr   error // when set, setDocument always returns this error
 	createErr error // when set, createDocument always returns this error
+	deleteErr error // when set, deleteDocument always returns this error
 	queryErr  error // when set, queryDocuments always returns this error
 
 	lastSetCollection string
@@ -80,6 +81,14 @@ func (f *fakeStore) createDocument(_ context.Context, collection, id string, dat
 		return ErrAlreadyExists
 	}
 	f.docs[key] = data
+	return nil
+}
+
+func (f *fakeStore) deleteDocument(_ context.Context, collection, id string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	delete(f.docs, f.key(collection, id))
 	return nil
 }
 
@@ -328,6 +337,60 @@ func TestCreateRejectsInvalidID(t *testing.T) {
 	}
 	if len(store.docs) != 0 {
 		t.Errorf("Create() wrote to the store despite the invalid ID: %v", store.docs)
+	}
+}
+
+func TestDeleteRemovesDocument(t *testing.T) {
+	store := newFakeStore()
+	store.docs["users/abc"] = map[string]any{"name": "Alice"}
+	ref := newTestRef[testUser](t, store, "users")
+
+	if err := ref.Delete(context.Background(), "abc"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if _, exists := store.docs["users/abc"]; exists {
+		t.Error("Delete() left the document in the store")
+	}
+}
+
+func TestDeleteMissingDocumentSucceeds(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	if err := ref.Delete(context.Background(), "missing"); err != nil {
+		t.Fatalf("Delete() error = %v, want nil", err)
+	}
+}
+
+func TestDeleteRejectsInvalidIDs(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	tests := []struct {
+		name string
+		id   string
+		want error
+	}{
+		{name: "empty", id: "", want: ErrEmptyID},
+		{name: "slash", id: "a/b", want: ErrInvalidID},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ref.Delete(context.Background(), tt.id)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("Delete(%q) error = %v, want errors.Is(err, %v)", tt.id, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestDeletePropagatesStoreError(t *testing.T) {
+	store := newFakeStore()
+	store.deleteErr = errors.New("delete failed")
+	ref := newTestRef[testUser](t, store, "users")
+
+	if err := ref.Delete(context.Background(), "abc"); err == nil {
+		t.Fatal("Delete() error = nil, want error")
 	}
 }
 
