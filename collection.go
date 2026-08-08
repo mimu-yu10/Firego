@@ -61,9 +61,9 @@ func validateCollectionPath(path string) error {
 // decode, ID injection, error propagation) can be unit tested against a
 // fake implementing this interface, without a live Firestore connection.
 type docStore interface {
-	GetDocument(ctx context.Context, collection, id string) (map[string]any, error)
-	SetDocument(ctx context.Context, collection, id string, data map[string]any) error
-	QueryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]Document, error)
+	getDocument(ctx context.Context, collection, id string) (map[string]any, error)
+	setDocument(ctx context.Context, collection, id string, data map[string]any) error
+	queryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]document, error)
 }
 
 var _ docStore = (*Client)(nil)
@@ -122,7 +122,7 @@ func (r *CollectionRef[T]) Get(ctx context.Context, id string) (T, error) {
 		return v, fmt.Errorf("firego: get %s/%s: %w", r.schema.Collection, id, err)
 	}
 
-	data, err := r.store.GetDocument(ctx, r.schema.Collection, id)
+	data, err := r.store.getDocument(ctx, r.schema.Collection, id)
 	if err != nil {
 		return v, fmt.Errorf("firego: get %s/%s: %w", r.schema.Collection, id, err)
 	}
@@ -162,7 +162,7 @@ func (r *CollectionRef[T]) Set(ctx context.Context, v T) error {
 	if err != nil {
 		return fmt.Errorf("firego: set %s/%s: encode: %w", r.schema.Collection, id, err)
 	}
-	if err := r.store.SetDocument(ctx, r.schema.Collection, id, data); err != nil {
+	if err := r.store.setDocument(ctx, r.schema.Collection, id, data); err != nil {
 		return fmt.Errorf("firego: set %s/%s: %w", r.schema.Collection, id, err)
 	}
 	return nil
