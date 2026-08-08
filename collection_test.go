@@ -53,6 +53,7 @@ type fakeStore struct {
 	lastQueryCollection string
 	lastQueryFilters    []query.Filter
 	lastQueryOrders     []query.Order
+	lastQueryLimit      *int
 }
 
 func newFakeStore() *fakeStore {
@@ -117,10 +118,11 @@ func (f *fakeStore) updateDocument(_ context.Context, collection, id string, upd
 	return nil
 }
 
-func (f *fakeStore) queryDocuments(_ context.Context, collection string, filters []query.Filter, orders []query.Order) ([]document, error) {
+func (f *fakeStore) queryDocuments(_ context.Context, collection string, filters []query.Filter, orders []query.Order, limit *int) ([]document, error) {
 	f.lastQueryCollection = collection
 	f.lastQueryFilters = filters
 	f.lastQueryOrders = orders
+	f.lastQueryLimit = limit
 	if f.queryErr != nil {
 		return nil, f.queryErr
 	}
@@ -137,6 +139,9 @@ func (f *fakeStore) queryDocuments(_ context.Context, collection string, filters
 		}
 	}
 	sort.Slice(docs, func(i, j int) bool { return docs[i].ID < docs[j].ID })
+	if limit != nil && *limit < len(docs) {
+		docs = docs[:*limit]
+	}
 	return docs, nil
 }
 

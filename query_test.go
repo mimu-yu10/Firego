@@ -207,6 +207,53 @@ func TestOrderByRejectsInvalidRequests(t *testing.T) {
 	}
 }
 
+func TestLimitRestrictsResults(t *testing.T) {
+	store := newFakeStore()
+	store.docs["users/a"] = map[string]any{"name": "Alice", "Age": 30}
+	store.docs["users/b"] = map[string]any{"name": "Bob", "Age": 25}
+	ref := newTestRef[testUser](t, store, "users")
+
+	got, err := ref.Limit(1).Documents(context.Background())
+	if err != nil {
+		t.Fatalf("Documents() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Documents() returned %d results, want 1", len(got))
+	}
+	if store.lastQueryLimit == nil || *store.lastQueryLimit != 1 {
+		t.Errorf("queryDocuments limit = %v, want 1", store.lastQueryLimit)
+	}
+}
+
+func TestLimitIsImmutableAndReplaceable(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+	base := ref.Where("Age", 30)
+
+	if _, err := base.Limit(5).Limit(2).Documents(context.Background()); err != nil {
+		t.Fatalf("limited Documents() error = %v", err)
+	}
+	if store.lastQueryLimit == nil || *store.lastQueryLimit != 2 {
+		t.Fatalf("replacement limit = %v, want 2", store.lastQueryLimit)
+	}
+	if _, err := base.Documents(context.Background()); err != nil {
+		t.Fatalf("base Documents() error = %v", err)
+	}
+	if store.lastQueryLimit != nil {
+		t.Errorf("base query limit = %v, want nil", store.lastQueryLimit)
+	}
+}
+
+func TestLimitRejectsNegativeValue(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	_, err := ref.Limit(-1).Documents(context.Background())
+	if !errors.Is(err, ErrInvalidLimit) {
+		t.Fatalf("Documents() error = %v, want errors.Is(err, ErrInvalidLimit)", err)
+	}
+}
+
 func TestDocumentsRejectsUnknownField(t *testing.T) {
 	store := newFakeStore()
 	ref := newTestRef[testUser](t, store, "users")

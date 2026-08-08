@@ -146,7 +146,7 @@ type document struct {
 }
 
 // queryDocuments returns every document in collection that matches all filters.
-func (c *Client) queryDocuments(ctx context.Context, collection string, filters []query.Filter, orders []query.Order) ([]document, error) {
+func (c *Client) queryDocuments(ctx context.Context, collection string, filters []query.Filter, orders []query.Order, limit *int) ([]document, error) {
 	q := c.firestore.Collection(collection).Query
 	for _, f := range filters {
 		q = q.WherePath(firestore.FieldPath{f.Field}, string(f.Op), f.Value)
@@ -157,6 +157,9 @@ func (c *Client) queryDocuments(ctx context.Context, collection string, filters 
 			direction = firestore.Desc
 		}
 		q = q.OrderByPath(firestore.FieldPath{order.Field}, direction)
+	}
+	if limit != nil {
+		q = q.Limit(*limit)
 	}
 
 	iter := q.Documents(ctx)

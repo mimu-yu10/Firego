@@ -98,6 +98,9 @@ selected, err := users.WhereOp("Age", query.In, []int{20, 30}).Documents(ctx)
 
 // OrderBy calls are immutable and may be chained after filters.
 youngestFirst, err := users.Where("Active", true).OrderBy("Age", query.Asc).Documents(ctx)
+
+// Limit caps the number of returned documents.
+firstPage, err := users.OrderBy("Age", query.Asc).Limit(20).Documents(ctx)
 ```
 
 ## Vision
@@ -125,7 +128,7 @@ err = firego.RunTransaction(ctx, client, func(tx *firego.Tx) error {
 | `internal/metadata`  | Builds a `schema.Schema` from struct tags via reflection | Implemented (internal — not importable outside this module) |
 | `codec`              | Encodes/decodes between structs and `map[string]any`, with type conversion and ID-field access | Implemented |
 | `firego` (top-level) | Firestore client wrapper and public API: `NewClient`, `Collection[T]`, `Get`, `Set`, `Create`, `Update`, `Delete`, `Where`/`Documents` | Implemented |
-| `query`              | Query building                                       | Filters and ordering; limits and pagination not started |
+| `query`              | Query building                                       | Filters, ordering, and limits; cursor pagination not started |
 | Transactions          | Automatic transaction wrapping for multi-step operations | Not started |
 
 ## Development
