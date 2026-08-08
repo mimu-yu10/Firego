@@ -32,7 +32,8 @@ type fakeStore struct {
 
 	getErr   error // when set, getDocument always returns this error
 	setErr   error // when set, setDocument always returns this error
-	queryErr error // when set, queryDocuments always returns this error
+	createErr error // when set, createDocument always returns this error
+	queryErr  error // when set, queryDocuments always returns this error
 
 	lastSetCollection string
 	lastSetID         string
@@ -67,6 +68,18 @@ func (f *fakeStore) setDocument(_ context.Context, collection, id string, data m
 	f.lastSetID = id
 	f.lastSetData = data
 	f.docs[f.key(collection, id)] = data
+	return nil
+}
+
+func (f *fakeStore) createDocument(_ context.Context, collection, id string, data map[string]any) error {
+	if f.createErr != nil {
+		return f.createErr
+	}
+	key := f.key(collection, id)
+	if _, exists := f.docs[key]; exists {
+		return ErrAlreadyExists
+	}
+	f.docs[key] = data
 	return nil
 }
 
@@ -270,6 +283,51 @@ func TestSetThenGetRoundTrip(t *testing.T) {
 	}
 	if got != want {
 		t.Errorf("round trip = %+v, want %+v", got, want)
+	}
+}
+
+func TestCreateWritesNewDocument(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	want := testUser{ID: "abc", Name: "Alice", Age: 30}
+	if err := ref.Create(context.Background(), want); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got, err := ref.Get(context.Background(), "abc")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got != want {
+		t.Errorf("created document = %+v, want %+v", got, want)
+	}
+}
+
+func TestCreateRejectsExistingDocument(t *testing.T) {
+	store := newFakeStore()
+	store.docs["users/abc"] = map[string]any{"name": "Original", "Age": 10}
+	ref := newTestRef[testUser](t, store, "users")
+
+	err := ref.Create(context.Background(), testUser{ID: "abc", Name: "Replacement", Age: 30})
+	if !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("Create() error = %v, want errors.Is(err, ErrAlreadyExists)", err)
+	}
+	if got := store.docs["users/abc"]["name"]; got != "Original" {
+		t.Errorf("existing document name = %v, want Original", got)
+	}
+}
+
+func TestCreateRejectsInvalidID(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	err := ref.Create(context.Background(), testUser{ID: "a/b", Name: "Alice"})
+	if !errors.Is(err, ErrInvalidID) {
+		t.Fatalf("Create() error = %v, want errors.Is(err, ErrInvalidID)", err)
+	}
+	if len(store.docs) != 0 {
+		t.Errorf("Create() wrote to the store despite the invalid ID: %v", store.docs)
 	}
 }
 

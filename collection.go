@@ -63,6 +63,7 @@ func validateCollectionPath(path string) error {
 type docStore interface {
 	getDocument(ctx context.Context, collection, id string) (map[string]any, error)
 	setDocument(ctx context.Context, collection, id string, data map[string]any) error
+	createDocument(ctx context.Context, collection, id string, data map[string]any) error
 	queryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]document, error)
 }
 
@@ -164,6 +165,35 @@ func (r *CollectionRef[T]) Set(ctx context.Context, v T) error {
 	}
 	if err := r.store.setDocument(ctx, r.schema.Collection, id, data); err != nil {
 		return fmt.Errorf("firego: set %s/%s: %w", r.schema.Collection, id, err)
+	}
+	return nil
+}
+
+// Create writes v as a new document identified by v's ID field. It returns
+// an error satisfying errors.Is(err, ErrAlreadyExists) if that document
+// already exists.
+func (r *CollectionRef[T]) Create(ctx context.Context, v T) error {
+	if r.schema.IDField == nil {
+		return fmt.Errorf("firego: %s: %w", r.schema.Name, ErrNoIDField)
+	}
+
+	id, err := r.codec.ID(v)
+	if err != nil {
+		return fmt.Errorf("firego: create %s: %w", r.schema.Collection, err)
+	}
+	if id == "" {
+		return fmt.Errorf("firego: %s.%s: %w", r.schema.Name, r.schema.IDField.Name, ErrEmptyID)
+	}
+	if err := validateID(id); err != nil {
+		return fmt.Errorf("firego: create %s/%s: %w", r.schema.Collection, id, err)
+	}
+
+	data, err := r.codec.Encode(v)
+	if err != nil {
+		return fmt.Errorf("firego: create %s/%s: encode: %w", r.schema.Collection, id, err)
+	}
+	if err := r.store.createDocument(ctx, r.schema.Collection, id, data); err != nil {
+		return fmt.Errorf("firego: create %s/%s: %w", r.schema.Collection, id, err)
 	}
 	return nil
 }

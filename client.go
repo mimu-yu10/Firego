@@ -22,6 +22,9 @@ var ErrNotFound = errors.New("client: document not found")
 // without an underlying Firestore client.
 var ErrNilFirestoreClient = errors.New("firego: Firestore client must not be nil")
 
+// ErrAlreadyExists is returned when Create targets an existing document.
+var ErrAlreadyExists = errors.New("firego: document already exists")
+
 // Client wraps the Google Cloud Firestore client used by Firego.
 type Client struct {
 	firestore *firestore.Client
@@ -93,6 +96,16 @@ func (c *Client) getDocument(ctx context.Context, collection, id string) (map[st
 func (c *Client) setDocument(ctx context.Context, collection, id string, data map[string]any) error {
 	if _, err := c.firestore.Collection(collection).Doc(id).Set(ctx, data); err != nil {
 		return fmt.Errorf("client: set %s/%s: %w", collection, id, err)
+	}
+	return nil
+}
+
+func (c *Client) createDocument(ctx context.Context, collection, id string, data map[string]any) error {
+	if _, err := c.firestore.Collection(collection).Doc(id).Create(ctx, data); err != nil {
+		if status.Code(err) == codes.AlreadyExists {
+			return ErrAlreadyExists
+		}
+		return fmt.Errorf("client: create %s/%s: %w", collection, id, err)
 	}
 	return nil
 }
