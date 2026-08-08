@@ -46,9 +46,8 @@ Embedded structs are promoted into the parent's field list — matching `encodin
 
 - **Schema discovery** (`internal/metadata`): builds a `schema.Schema` for a model type from its struct tags, including embedded-field promotion and ID-field validation. A `Registry` caches the resulting schema per model type and collection, so repeated lookups for the same pair skip reflection after the first call.
 - **Codec** (`codec`): given a `schema.Schema`, encodes a struct into a `map[string]any` and decodes a `map[string]any` back into a struct, converting between compatible types (for example, Firestore's `int64` into a Go `int` field) while rejecting conversions that cross incompatible kind families (e.g. string into int). Also reads and writes the ID field (`ID`/`SetID`), independently of the document body.
-- **Client** (`client`): wraps a `*firestore.Client` with a per-model schema cache, `GetDocument`/`SetDocument` methods that read and write raw document data (mapping a missing document to `ErrNotFound`), and `QueryDocuments`, which runs a set of equality filters (`query.Filter`) against a collection.
-- **Query** (`query`): the `Filter` type shared between `firego` and `client` — a Firestore field name, operator, and value. Currently only the equality operator (`query.Equal`) is used.
-- **Firego** (`firego`, the top-level package): the public entry point. `NewClient` creates a client; `Collection[T]` returns a type-safe `CollectionRef[T]` whose `Get` and `Set` methods handle encoding, decoding, and ID-field wiring so callers only deal with plain structs. `CollectionRef[T].Where` starts a `Query[T]`, an immutable, chainable equality filter that `Documents` runs, decoding every match into a `[]T` with each result's ID field populated the same way `Get` populates it.
+- **Query** (`query`): the `Filter` type shared by the root package's query implementation — a Firestore field name, operator, and value. Currently only the equality operator (`query.Equal`) is used.
+- **Firego** (`firego`, the top-level package): the public entry point and Firestore client wrapper. `NewClient` creates a client with a per-model schema cache; `Collection[T]` returns a type-safe `CollectionRef[T]` whose `Get` and `Set` methods handle encoding, decoding, and ID-field wiring so callers only deal with plain structs. `CollectionRef[T].Where` starts a `Query[T]`, an immutable, chainable equality filter that `Documents` runs, decoding every match into a `[]T` with each result's ID field populated the same way `Get` populates it.
 
 These packages are exercised by the test suite. `Get`/`Set`/`Where`'s encode/decode/error-propagation logic is covered end-to-end against an in-memory fake; the thin adapter that calls the real Firestore SDK is not yet covered by an automated test beyond its NotFound-mapping logic, since no Firestore emulator is available in this environment yet.
 
@@ -59,6 +58,10 @@ client, err := firego.NewClient(ctx, projectID)
 if err != nil {
 	log.Fatal(err)
 }
+
+// To use a preconfigured Firestore client (for example, for a named
+// database), wrap it instead:
+// client := firego.NewClientFromFirestore(firestoreClient)
 
 users, err := firego.Collection[User](client, "users")
 if err != nil {
@@ -103,8 +106,7 @@ err = firego.RunTransaction(ctx, client, func(tx *firego.Tx) error {
 | `schema`             | Describes the mapping between a Go type and a Firestore collection/fields | Implemented |
 | `internal/metadata`  | Builds a `schema.Schema` from struct tags via reflection | Implemented (internal — not importable outside this module) |
 | `codec`              | Encodes/decodes between structs and `map[string]any`, with type conversion and ID-field access | Implemented |
-| `client`             | Wraps `*firestore.Client`; per-model schema cache; `GetDocument`/`SetDocument`/`QueryDocuments` | Implemented |
-| `firego` (top-level) | Public API: `NewClient`, `Collection[T]`, `Get`, `Set`, `Where`/`Documents`  | Implemented |
+| `firego` (top-level) | Firestore client wrapper and public API: `NewClient`, `Collection[T]`, `Get`, `Set`, `Where`/`Documents` | Implemented |
 | `query`              | Query building                                       | Equality filters only (`Filter`, `Equal`); ordering, ranges, and pagination not started |
 | Transactions          | Automatic transaction wrapping for multi-step operations | Not started |
 
