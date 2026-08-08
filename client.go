@@ -149,7 +149,7 @@ type document struct {
 func (c *Client) queryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]document, error) {
 	q := c.firestore.Collection(collection).Query
 	for _, f := range filters {
-		q = q.WherePath(firestore.FieldPath{f.Field}, f.Op, f.Value)
+		q = q.WherePath(firestore.FieldPath{f.Field}, string(f.Op), f.Value)
 	}
 
 	iter := q.Documents(ctx)
