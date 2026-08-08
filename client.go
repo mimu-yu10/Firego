@@ -68,9 +68,9 @@ func cloneSchema(s *schema.Schema) *schema.Schema {
 	return &clone
 }
 
-// GetDocument reads the document at collection/id and returns its data.
+// getDocument reads the document at collection/id and returns its data.
 // It returns ErrNotFound if the document does not exist.
-func (c *Client) GetDocument(ctx context.Context, collection, id string) (map[string]any, error) {
+func (c *Client) getDocument(ctx context.Context, collection, id string) (map[string]any, error) {
 	snap, err := c.firestore.Collection(collection).Doc(id).Get(ctx)
 	if err != nil {
 		if isNotFound(err) {
@@ -81,23 +81,23 @@ func (c *Client) GetDocument(ctx context.Context, collection, id string) (map[st
 	return snap.Data(), nil
 }
 
-// SetDocument writes data to the document at collection/id, creating it if
+// setDocument writes data to the document at collection/id, creating it if
 // necessary or overwriting it if it already exists.
-func (c *Client) SetDocument(ctx context.Context, collection, id string, data map[string]any) error {
+func (c *Client) setDocument(ctx context.Context, collection, id string, data map[string]any) error {
 	if _, err := c.firestore.Collection(collection).Doc(id).Set(ctx, data); err != nil {
 		return fmt.Errorf("client: set %s/%s: %w", collection, id, err)
 	}
 	return nil
 }
 
-// Document is one result of a QueryDocuments call: a document ID and its data.
-type Document struct {
+// document is one result of a queryDocuments call: a document ID and its data.
+type document struct {
 	ID   string
 	Data map[string]any
 }
 
-// QueryDocuments returns every document in collection that matches all filters.
-func (c *Client) QueryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]Document, error) {
+// queryDocuments returns every document in collection that matches all filters.
+func (c *Client) queryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]document, error) {
 	q := c.firestore.Collection(collection).Query
 	for _, f := range filters {
 		q = q.WherePath(firestore.FieldPath{f.Field}, f.Op, f.Value)
@@ -106,7 +106,7 @@ func (c *Client) QueryDocuments(ctx context.Context, collection string, filters 
 	iter := q.Documents(ctx)
 	defer iter.Stop()
 
-	var docs []Document
+	var docs []document
 	for {
 		snap, err := iter.Next()
 		if errors.Is(err, iterator.Done) {
@@ -115,7 +115,7 @@ func (c *Client) QueryDocuments(ctx context.Context, collection string, filters 
 		if err != nil {
 			return nil, fmt.Errorf("client: query %s: %w", collection, err)
 		}
-		docs = append(docs, Document{ID: snap.Ref.ID, Data: snap.Data()})
+		docs = append(docs, document{ID: snap.Ref.ID, Data: snap.Data()})
 	}
 	return docs, nil
 }
