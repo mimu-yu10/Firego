@@ -26,6 +26,14 @@ var ErrEmptyID = errors.New("firego: ID field is empty")
 // invalid path) than the caller intended.
 var ErrInvalidID = errors.New(`firego: document ID must not contain "/"`)
 
+// ErrInvalidClient is returned when Collection receives a nil or
+// uninitialized Client.
+var ErrInvalidClient = errors.New("firego: client is nil or uninitialized")
+
+// ErrInvalidCollectionPath is returned when a collection path is empty,
+// contains an empty segment, or does not end at a collection.
+var ErrInvalidCollectionPath = errors.New("firego: invalid collection path")
+
 // validateID reports an error if id is not a single, legal Firestore
 // document-ID path segment.
 func validateID(id string) error {
@@ -35,14 +43,28 @@ func validateID(id string) error {
 	return nil
 }
 
+func validateCollectionPath(path string) error {
+	segments := strings.Split(path, "/")
+	if len(segments)%2 == 0 {
+		return ErrInvalidCollectionPath
+	}
+	for _, segment := range segments {
+		if segment == "" {
+			return ErrInvalidCollectionPath
+		}
+	}
+	return nil
+}
+
 // docStore is the subset of *Client that CollectionRef needs. Its
 // purpose is testability: CollectionRef's orchestration logic (encode and
 // decode, ID injection, error propagation) can be unit tested against a
 // fake implementing this interface, without a live Firestore connection.
 type docStore interface {
-	GetDocument(ctx context.Context, collection, id string) (map[string]any, error)
-	SetDocument(ctx context.Context, collection, id string, data map[string]any) error
-	QueryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]Document, error)
+	getDocument(ctx context.Context, collection, id string) (map[string]any, error)
+	setDocument(ctx context.Context, collection, id string, data map[string]any) error
+	createDocument(ctx context.Context, collection, id string, data map[string]any) error
+	queryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]document, error)
 }
 
 var _ docStore = (*Client)(nil)
@@ -62,6 +84,12 @@ type CollectionRef[T any] struct {
 // whose documents map to Go values of type T. T must be a struct type, not
 // a pointer — pass User, not *User.
 func Collection[T any](c *Client, name string) (*CollectionRef[T], error) {
+	if c == nil || c.firestore == nil || c.registry == nil {
+		return nil, ErrInvalidClient
+	}
+	if err := validateCollectionPath(name); err != nil {
+		return nil, fmt.Errorf("firego: collection %q: %w", name, err)
+	}
 	if t := reflect.TypeFor[T](); t.Kind() == reflect.Pointer {
 		return nil, fmt.Errorf("firego: Collection[T]: T must not be a pointer type, got %s", t)
 	}
@@ -95,7 +123,7 @@ func (r *CollectionRef[T]) Get(ctx context.Context, id string) (T, error) {
 		return v, fmt.Errorf("firego: get %s/%s: %w", r.schema.Collection, id, err)
 	}
 
-	data, err := r.store.GetDocument(ctx, r.schema.Collection, id)
+	data, err := r.store.getDocument(ctx, r.schema.Collection, id)
 	if err != nil {
 		return v, fmt.Errorf("firego: get %s/%s: %w", r.schema.Collection, id, err)
 	}
@@ -135,8 +163,37 @@ func (r *CollectionRef[T]) Set(ctx context.Context, v T) error {
 	if err != nil {
 		return fmt.Errorf("firego: set %s/%s: encode: %w", r.schema.Collection, id, err)
 	}
-	if err := r.store.SetDocument(ctx, r.schema.Collection, id, data); err != nil {
+	if err := r.store.setDocument(ctx, r.schema.Collection, id, data); err != nil {
 		return fmt.Errorf("firego: set %s/%s: %w", r.schema.Collection, id, err)
+	}
+	return nil
+}
+
+// Create writes v as a new document identified by v's ID field. It returns
+// an error satisfying errors.Is(err, ErrAlreadyExists) if that document
+// already exists.
+func (r *CollectionRef[T]) Create(ctx context.Context, v T) error {
+	if r.schema.IDField == nil {
+		return fmt.Errorf("firego: %s: %w", r.schema.Name, ErrNoIDField)
+	}
+
+	id, err := r.codec.ID(v)
+	if err != nil {
+		return fmt.Errorf("firego: create %s: %w", r.schema.Collection, err)
+	}
+	if id == "" {
+		return fmt.Errorf("firego: %s.%s: %w", r.schema.Name, r.schema.IDField.Name, ErrEmptyID)
+	}
+	if err := validateID(id); err != nil {
+		return fmt.Errorf("firego: create %s/%s: %w", r.schema.Collection, id, err)
+	}
+
+	data, err := r.codec.Encode(v)
+	if err != nil {
+		return fmt.Errorf("firego: create %s/%s: encode: %w", r.schema.Collection, id, err)
+	}
+	if err := r.store.createDocument(ctx, r.schema.Collection, id, data); err != nil {
+		return fmt.Errorf("firego: create %s/%s: %w", r.schema.Collection, id, err)
 	}
 	return nil
 }

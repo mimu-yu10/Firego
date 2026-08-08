@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"cloud.google.com/go/firestore"
 	"github.com/mimu-y10/firego/codec"
 	"github.com/mimu-y10/firego/internal/metadata"
 	"github.com/mimu-y10/firego/query"
@@ -29,9 +30,10 @@ type testItem struct {
 type fakeStore struct {
 	docs map[string]map[string]any
 
-	getErr   error // when set, GetDocument always returns this error
-	setErr   error // when set, SetDocument always returns this error
-	queryErr error // when set, QueryDocuments always returns this error
+	getErr   error // when set, getDocument always returns this error
+	setErr   error // when set, setDocument always returns this error
+	createErr error // when set, createDocument always returns this error
+	queryErr  error // when set, queryDocuments always returns this error
 
 	lastSetCollection string
 	lastSetID         string
@@ -47,7 +49,7 @@ func newFakeStore() *fakeStore {
 
 func (f *fakeStore) key(collection, id string) string { return collection + "/" + id }
 
-func (f *fakeStore) GetDocument(_ context.Context, collection, id string) (map[string]any, error) {
+func (f *fakeStore) getDocument(_ context.Context, collection, id string) (map[string]any, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -58,7 +60,7 @@ func (f *fakeStore) GetDocument(_ context.Context, collection, id string) (map[s
 	return data, nil
 }
 
-func (f *fakeStore) SetDocument(_ context.Context, collection, id string, data map[string]any) error {
+func (f *fakeStore) setDocument(_ context.Context, collection, id string, data map[string]any) error {
 	if f.setErr != nil {
 		return f.setErr
 	}
@@ -69,7 +71,19 @@ func (f *fakeStore) SetDocument(_ context.Context, collection, id string, data m
 	return nil
 }
 
-func (f *fakeStore) QueryDocuments(_ context.Context, collection string, filters []query.Filter) ([]Document, error) {
+func (f *fakeStore) createDocument(_ context.Context, collection, id string, data map[string]any) error {
+	if f.createErr != nil {
+		return f.createErr
+	}
+	key := f.key(collection, id)
+	if _, exists := f.docs[key]; exists {
+		return ErrAlreadyExists
+	}
+	f.docs[key] = data
+	return nil
+}
+
+func (f *fakeStore) queryDocuments(_ context.Context, collection string, filters []query.Filter) ([]document, error) {
 	f.lastQueryCollection = collection
 	f.lastQueryFilters = filters
 	if f.queryErr != nil {
@@ -77,14 +91,14 @@ func (f *fakeStore) QueryDocuments(_ context.Context, collection string, filters
 	}
 
 	prefix := collection + "/"
-	var docs []Document
+	var docs []document
 	for key, data := range f.docs {
 		id, ok := strings.CutPrefix(key, prefix)
 		if !ok {
 			continue
 		}
 		if matchesAllFilters(data, filters) {
-			docs = append(docs, Document{ID: id, Data: data})
+			docs = append(docs, document{ID: id, Data: data})
 		}
 	}
 	sort.Slice(docs, func(i, j int) bool { return docs[i].ID < docs[j].ID })
@@ -112,8 +126,57 @@ func newTestRef[T any](t *testing.T, store docStore, collection string) *Collect
 }
 
 func TestCollectionRejectsPointerType(t *testing.T) {
-	if _, err := Collection[*testUser](nil, "users"); err == nil {
+	client, err := NewClientFromFirestore(&firestore.Client{})
+	if err != nil {
+		t.Fatalf("NewClientFromFirestore() error = %v", err)
+	}
+	if _, err := Collection[*testUser](client, "users"); err == nil {
 		t.Fatal("Collection[*testUser]() error = nil, want error")
+	}
+}
+
+func TestCollectionRejectsInvalidClient(t *testing.T) {
+	tests := []struct {
+		name   string
+		client *Client
+	}{
+		{name: "nil", client: nil},
+		{name: "zero value", client: &Client{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Collection[testUser](tt.client, "users")
+			if !errors.Is(err, ErrInvalidClient) {
+				t.Fatalf("Collection() error = %v, want errors.Is(err, ErrInvalidClient)", err)
+			}
+		})
+	}
+}
+
+func TestCollectionRejectsInvalidPath(t *testing.T) {
+	client, err := NewClientFromFirestore(&firestore.Client{})
+	if err != nil {
+		t.Fatalf("NewClientFromFirestore() error = %v", err)
+	}
+
+	for _, path := range []string{"", "/", "/users", "users/", "users//posts", "users/alice"} {
+		t.Run(path, func(t *testing.T) {
+			_, err := Collection[testUser](client, path)
+			if !errors.Is(err, ErrInvalidCollectionPath) {
+				t.Fatalf("Collection(%q) error = %v, want errors.Is(err, ErrInvalidCollectionPath)", path, err)
+			}
+		})
+	}
+}
+
+func TestValidateCollectionPathAcceptsCollectionPaths(t *testing.T) {
+	for _, path := range []string{"users", "users/alice/posts"} {
+		t.Run(path, func(t *testing.T) {
+			if err := validateCollectionPath(path); err != nil {
+				t.Errorf("validateCollectionPath(%q) error = %v", path, err)
+			}
+		})
 	}
 }
 
@@ -187,21 +250,21 @@ func TestSetWritesEncodedData(t *testing.T) {
 	}
 
 	if store.lastSetCollection != "users" {
-		t.Errorf("SetDocument collection = %q, want %q", store.lastSetCollection, "users")
+		t.Errorf("setDocument collection = %q, want %q", store.lastSetCollection, "users")
 	}
 	if store.lastSetID != "abc" {
-		t.Errorf("SetDocument id = %q, want %q", store.lastSetID, "abc")
+		t.Errorf("setDocument id = %q, want %q", store.lastSetID, "abc")
 	}
 	// Only Name and Age should reach the store — the ID field is never part
 	// of the document body.
 	if len(store.lastSetData) != 2 {
-		t.Fatalf("SetDocument data = %v, want exactly 2 fields (name, Age)", store.lastSetData)
+		t.Fatalf("setDocument data = %v, want exactly 2 fields (name, Age)", store.lastSetData)
 	}
 	if store.lastSetData["name"] != "Alice" {
-		t.Errorf("SetDocument data[name] = %v, want Alice", store.lastSetData["name"])
+		t.Errorf("setDocument data[name] = %v, want Alice", store.lastSetData["name"])
 	}
 	if store.lastSetData["Age"] != 30 {
-		t.Errorf("SetDocument data[Age] = %v, want 30", store.lastSetData["Age"])
+		t.Errorf("setDocument data[Age] = %v, want 30", store.lastSetData["Age"])
 	}
 }
 
@@ -220,6 +283,51 @@ func TestSetThenGetRoundTrip(t *testing.T) {
 	}
 	if got != want {
 		t.Errorf("round trip = %+v, want %+v", got, want)
+	}
+}
+
+func TestCreateWritesNewDocument(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	want := testUser{ID: "abc", Name: "Alice", Age: 30}
+	if err := ref.Create(context.Background(), want); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got, err := ref.Get(context.Background(), "abc")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got != want {
+		t.Errorf("created document = %+v, want %+v", got, want)
+	}
+}
+
+func TestCreateRejectsExistingDocument(t *testing.T) {
+	store := newFakeStore()
+	store.docs["users/abc"] = map[string]any{"name": "Original", "Age": 10}
+	ref := newTestRef[testUser](t, store, "users")
+
+	err := ref.Create(context.Background(), testUser{ID: "abc", Name: "Replacement", Age: 30})
+	if !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("Create() error = %v, want errors.Is(err, ErrAlreadyExists)", err)
+	}
+	if got := store.docs["users/abc"]["name"]; got != "Original" {
+		t.Errorf("existing document name = %v, want Original", got)
+	}
+}
+
+func TestCreateRejectsInvalidID(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	err := ref.Create(context.Background(), testUser{ID: "a/b", Name: "Alice"})
+	if !errors.Is(err, ErrInvalidID) {
+		t.Fatalf("Create() error = %v, want errors.Is(err, ErrInvalidID)", err)
+	}
+	if len(store.docs) != 0 {
+		t.Errorf("Create() wrote to the store despite the invalid ID: %v", store.docs)
 	}
 }
 
