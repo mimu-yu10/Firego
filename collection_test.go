@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"github.com/mimu-y10/firego/codec"
@@ -24,6 +25,14 @@ type testItem struct {
 	Name string `firestore:"name"`
 }
 
+type testUpdateModel struct {
+	ID        string `firego:"id" firestore:"-"`
+	Name      string
+	Count     int
+	Tags      []string
+	UpdatedAt time.Time
+}
+
 // fakeStore is an in-memory docStore. It lets CollectionRef's orchestration
 // logic (encode/decode, ID injection, error propagation) be unit tested
 // without a live Firestore connection.
@@ -34,6 +43,7 @@ type fakeStore struct {
 	setErr   error // when set, setDocument always returns this error
 	createErr error // when set, createDocument always returns this error
 	deleteErr error // when set, deleteDocument always returns this error
+	updateErr error // when set, updateDocument always returns this error
 	queryErr  error // when set, queryDocuments always returns this error
 
 	lastSetCollection string
@@ -89,6 +99,20 @@ func (f *fakeStore) deleteDocument(_ context.Context, collection, id string) err
 		return f.deleteErr
 	}
 	delete(f.docs, f.key(collection, id))
+	return nil
+}
+
+func (f *fakeStore) updateDocument(_ context.Context, collection, id string, updates []documentUpdate) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	data, exists := f.docs[f.key(collection, id)]
+	if !exists {
+		return ErrNotFound
+	}
+	for _, update := range updates {
+		data[update.field] = update.value
+	}
 	return nil
 }
 
@@ -391,6 +415,120 @@ func TestDeletePropagatesStoreError(t *testing.T) {
 
 	if err := ref.Delete(context.Background(), "abc"); err == nil {
 		t.Fatal("Delete() error = nil, want error")
+	}
+}
+
+func TestUpdateChangesSelectedFields(t *testing.T) {
+	store := newFakeStore()
+	store.docs["users/abc"] = map[string]any{"name": "Alice", "Age": 30}
+	ref := newTestRef[testUser](t, store, "users")
+
+	err := ref.Update(context.Background(), "abc", FieldUpdate{Field: "Name", Value: "Bob"})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if got := store.docs["users/abc"]["name"]; got != "Bob" {
+		t.Errorf("updated name = %v, want Bob", got)
+	}
+	if got := store.docs["users/abc"]["Age"]; got != 30 {
+		t.Errorf("unchanged Age = %v, want 30", got)
+	}
+}
+
+func TestUpdateNormalizesCompatibleValue(t *testing.T) {
+	store := newFakeStore()
+	store.docs["users/abc"] = map[string]any{"Age": 30}
+	ref := newTestRef[testUser](t, store, "users")
+
+	if err := ref.Update(context.Background(), "abc", FieldUpdate{Field: "Age", Value: int64(31)}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	got := store.docs["users/abc"]["Age"]
+	if _, ok := got.(int); !ok || got != 31 {
+		t.Errorf("updated Age = %v (%T), want int(31)", got, got)
+	}
+}
+
+func TestUpdateAllowsCompatibleFirestoreSentinels(t *testing.T) {
+	store := newFakeStore()
+	store.docs["profiles/abc"] = map[string]any{}
+	ref := newTestRef[testUpdateModel](t, store, "profiles")
+
+	err := ref.Update(context.Background(), "abc",
+		FieldUpdate{Field: "Name", Value: firestore.Delete},
+		FieldUpdate{Field: "Count", Value: firestore.Increment(1)},
+		FieldUpdate{Field: "Tags", Value: firestore.ArrayUnion("go")},
+		FieldUpdate{Field: "UpdatedAt", Value: firestore.ServerTimestamp},
+	)
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+}
+
+func TestUpdateRejectsIncompatibleValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		field string
+		value any
+	}{
+		{name: "ordinary value", field: "Count", value: "one"},
+		{name: "numeric transform", field: "Name", value: firestore.Increment(1)},
+		{name: "array transform", field: "Name", value: firestore.ArrayUnion("go")},
+		{name: "server timestamp", field: "Name", value: firestore.ServerTimestamp},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeStore()
+			store.docs["profiles/abc"] = map[string]any{"Name": "before", "Count": 1}
+			ref := newTestRef[testUpdateModel](t, store, "profiles")
+
+			err := ref.Update(context.Background(), "abc", FieldUpdate{Field: tt.field, Value: tt.value})
+			if !errors.Is(err, ErrInvalidUpdateValue) {
+				t.Fatalf("Update() error = %v, want errors.Is(err, ErrInvalidUpdateValue)", err)
+			}
+			if got := store.docs["profiles/abc"]["Name"]; got != "before" {
+				t.Errorf("document changed after rejected update: Name = %v", got)
+			}
+		})
+	}
+}
+
+func TestUpdateRejectsInvalidRequests(t *testing.T) {
+	store := newFakeStore()
+	store.docs["users/abc"] = map[string]any{"name": "Alice"}
+	ref := newTestRef[testUser](t, store, "users")
+
+	tests := []struct {
+		name    string
+		id      string
+		updates []FieldUpdate
+		want    error
+	}{
+		{name: "empty ID", id: "", updates: []FieldUpdate{{Field: "Name", Value: "Bob"}}, want: ErrEmptyID},
+		{name: "invalid ID", id: "a/b", updates: []FieldUpdate{{Field: "Name", Value: "Bob"}}, want: ErrInvalidID},
+		{name: "empty updates", id: "abc", want: ErrEmptyUpdates},
+		{name: "unknown field", id: "abc", updates: []FieldUpdate{{Field: "Missing", Value: true}}, want: ErrUnknownField},
+		{name: "ID field", id: "abc", updates: []FieldUpdate{{Field: "ID", Value: "other"}}, want: ErrIDFieldNotWritable},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ref.Update(context.Background(), tt.id, tt.updates...)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("Update() error = %v, want errors.Is(err, %v)", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestUpdateMissingDocumentReturnsNotFound(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	err := ref.Update(context.Background(), "missing", FieldUpdate{Field: "Name", Value: "Bob"})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Update() error = %v, want errors.Is(err, ErrNotFound)", err)
 	}
 }
 

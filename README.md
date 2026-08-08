@@ -82,6 +82,9 @@ err = users.Create(ctx, User{ID: "user-456", Name: "Bob", Age: 24})
 // Delete is idempotent; deleting a missing document also succeeds.
 err = users.Delete(ctx, "user-456")
 
+// Update resolves Go field names through the model schema.
+err = users.Update(ctx, "user-123", firego.FieldUpdate{Field: "Age", Value: 31})
+
 // Where filters on a Go struct field name (not its Firestore name) and
 // matches on equality. Chained Where calls combine with AND. Each result's
 // ID field is populated the same way Get populates it.
@@ -112,7 +115,7 @@ err = firego.RunTransaction(ctx, client, func(tx *firego.Tx) error {
 | `schema`             | Describes the mapping between a Go type and a Firestore collection/fields | Implemented |
 | `internal/metadata`  | Builds a `schema.Schema` from struct tags via reflection | Implemented (internal — not importable outside this module) |
 | `codec`              | Encodes/decodes between structs and `map[string]any`, with type conversion and ID-field access | Implemented |
-| `firego` (top-level) | Firestore client wrapper and public API: `NewClient`, `Collection[T]`, `Get`, `Set`, `Create`, `Delete`, `Where`/`Documents` | Implemented |
+| `firego` (top-level) | Firestore client wrapper and public API: `NewClient`, `Collection[T]`, `Get`, `Set`, `Create`, `Update`, `Delete`, `Where`/`Documents` | Implemented |
 | `query`              | Query building                                       | Equality filters only (`Filter`, `Equal`); ordering, ranges, and pagination not started |
 | Transactions          | Automatic transaction wrapping for multi-step operations | Not started |
 
