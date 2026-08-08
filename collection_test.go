@@ -30,9 +30,9 @@ type testItem struct {
 type fakeStore struct {
 	docs map[string]map[string]any
 
-	getErr   error // when set, GetDocument always returns this error
-	setErr   error // when set, SetDocument always returns this error
-	queryErr error // when set, QueryDocuments always returns this error
+	getErr   error // when set, getDocument always returns this error
+	setErr   error // when set, setDocument always returns this error
+	queryErr error // when set, queryDocuments always returns this error
 
 	lastSetCollection string
 	lastSetID         string
@@ -48,7 +48,7 @@ func newFakeStore() *fakeStore {
 
 func (f *fakeStore) key(collection, id string) string { return collection + "/" + id }
 
-func (f *fakeStore) GetDocument(_ context.Context, collection, id string) (map[string]any, error) {
+func (f *fakeStore) getDocument(_ context.Context, collection, id string) (map[string]any, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -59,7 +59,7 @@ func (f *fakeStore) GetDocument(_ context.Context, collection, id string) (map[s
 	return data, nil
 }
 
-func (f *fakeStore) SetDocument(_ context.Context, collection, id string, data map[string]any) error {
+func (f *fakeStore) setDocument(_ context.Context, collection, id string, data map[string]any) error {
 	if f.setErr != nil {
 		return f.setErr
 	}
@@ -70,7 +70,7 @@ func (f *fakeStore) SetDocument(_ context.Context, collection, id string, data m
 	return nil
 }
 
-func (f *fakeStore) QueryDocuments(_ context.Context, collection string, filters []query.Filter) ([]Document, error) {
+func (f *fakeStore) queryDocuments(_ context.Context, collection string, filters []query.Filter) ([]document, error) {
 	f.lastQueryCollection = collection
 	f.lastQueryFilters = filters
 	if f.queryErr != nil {
@@ -78,14 +78,14 @@ func (f *fakeStore) QueryDocuments(_ context.Context, collection string, filters
 	}
 
 	prefix := collection + "/"
-	var docs []Document
+	var docs []document
 	for key, data := range f.docs {
 		id, ok := strings.CutPrefix(key, prefix)
 		if !ok {
 			continue
 		}
 		if matchesAllFilters(data, filters) {
-			docs = append(docs, Document{ID: id, Data: data})
+			docs = append(docs, document{ID: id, Data: data})
 		}
 	}
 	sort.Slice(docs, func(i, j int) bool { return docs[i].ID < docs[j].ID })
@@ -237,21 +237,21 @@ func TestSetWritesEncodedData(t *testing.T) {
 	}
 
 	if store.lastSetCollection != "users" {
-		t.Errorf("SetDocument collection = %q, want %q", store.lastSetCollection, "users")
+		t.Errorf("setDocument collection = %q, want %q", store.lastSetCollection, "users")
 	}
 	if store.lastSetID != "abc" {
-		t.Errorf("SetDocument id = %q, want %q", store.lastSetID, "abc")
+		t.Errorf("setDocument id = %q, want %q", store.lastSetID, "abc")
 	}
 	// Only Name and Age should reach the store — the ID field is never part
 	// of the document body.
 	if len(store.lastSetData) != 2 {
-		t.Fatalf("SetDocument data = %v, want exactly 2 fields (name, Age)", store.lastSetData)
+		t.Fatalf("setDocument data = %v, want exactly 2 fields (name, Age)", store.lastSetData)
 	}
 	if store.lastSetData["name"] != "Alice" {
-		t.Errorf("SetDocument data[name] = %v, want Alice", store.lastSetData["name"])
+		t.Errorf("setDocument data[name] = %v, want Alice", store.lastSetData["name"])
 	}
 	if store.lastSetData["Age"] != 30 {
-		t.Errorf("SetDocument data[Age] = %v, want 30", store.lastSetData["Age"])
+		t.Errorf("setDocument data[Age] = %v, want 30", store.lastSetData["Age"])
 	}
 }
 

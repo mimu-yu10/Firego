@@ -31,10 +31,10 @@ func TestWhereResolvesGoFieldNameToFirestoreName(t *testing.T) {
 	}
 
 	if store.lastQueryCollection != "users" {
-		t.Errorf("QueryDocuments collection = %q, want %q", store.lastQueryCollection, "users")
+		t.Errorf("queryDocuments collection = %q, want %q", store.lastQueryCollection, "users")
 	}
 	if len(store.lastQueryFilters) != 1 {
-		t.Fatalf("QueryDocuments filters = %v, want exactly 1 filter", store.lastQueryFilters)
+		t.Fatalf("queryDocuments filters = %v, want exactly 1 filter", store.lastQueryFilters)
 	}
 	// "Name" is the Go field; its FirestoreName is "name" per the
 	// `firestore:"name"` tag on testUser.
@@ -57,7 +57,7 @@ func TestWhereChainCombinesFiltersWithAnd(t *testing.T) {
 		t.Errorf("Documents() = %+v, want exactly the abc document", got)
 	}
 	if len(store.lastQueryFilters) != 2 {
-		t.Fatalf("QueryDocuments filters = %v, want exactly 2 filters", store.lastQueryFilters)
+		t.Fatalf("queryDocuments filters = %v, want exactly 2 filters", store.lastQueryFilters)
 	}
 }
 
@@ -139,10 +139,9 @@ func TestWhereResolvesShadowedFieldToTopLevel(t *testing.T) {
 	}
 
 	if len(store.lastQueryFilters) != 1 {
-		t.Fatalf("QueryDocuments filters = %v, want exactly 1 filter", store.lastQueryFilters)
+		t.Fatalf("queryDocuments filters = %v, want exactly 1 filter", store.lastQueryFilters)
 	}
 	if got := store.lastQueryFilters[0].Field; got != "top_category" {
 		t.Errorf("filter field = %q, want %q (the top-level field, not the one promoted from embeddedCategory)", got, "top_category")
 	}
 }
-

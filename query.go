@@ -75,7 +75,7 @@ func (q *Query[T]) Documents(ctx context.Context) ([]T, error) {
 		resolved[i] = query.Filter{Field: sf.FirestoreName, Op: f.Op, Value: f.Value}
 	}
 
-	docs, err := r.store.QueryDocuments(ctx, r.schema.Collection, resolved)
+	docs, err := r.store.queryDocuments(ctx, r.schema.Collection, resolved)
 	if err != nil {
 		return nil, fmt.Errorf("firego: query %s: %w", r.schema.Collection, err)
 	}
