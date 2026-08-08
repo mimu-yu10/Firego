@@ -90,6 +90,32 @@ func TestWhereOpForwardsComparisonOperators(t *testing.T) {
 	}
 }
 
+func TestWhereOpForwardsMembershipOperators(t *testing.T) {
+	tests := []struct {
+		op    query.Operator
+		value any
+	}{
+		{op: query.In, value: []int{20, 30}},
+		{op: query.NotIn, value: []int{20, 30}},
+		{op: query.ArrayContains, value: 30},
+		{op: query.ArrayContainsAny, value: []int{20, 30}},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.op), func(t *testing.T) {
+			store := newFakeStore()
+			ref := newTestRef[testUser](t, store, "users")
+
+			if _, err := ref.WhereOp("Age", tt.op, tt.value).Documents(context.Background()); err != nil {
+				t.Fatalf("Documents() error = %v", err)
+			}
+			if len(store.lastQueryFilters) != 1 || store.lastQueryFilters[0].Op != tt.op {
+				t.Fatalf("queryDocuments filters = %v, want operator %q", store.lastQueryFilters, tt.op)
+			}
+		})
+	}
+}
+
 func TestWhereOpRejectsUnsupportedOperator(t *testing.T) {
 	store := newFakeStore()
 	ref := newTestRef[testUser](t, store, "users")
