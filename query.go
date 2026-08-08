@@ -20,6 +20,9 @@ var ErrUnsupportedOperator = errors.New("firego: unsupported query operator")
 // Firego does not support.
 var ErrUnsupportedDirection = errors.New("firego: unsupported query direction")
 
+// ErrInvalidLimit is returned when Limit receives a negative value.
+var ErrInvalidLimit = errors.New("firego: query limit must not be negative")
+
 // ErrIDFieldNotQueryable is returned by (*Query[T]).Documents when a Where
 // call named the model's ID field. A document's ID is not part of its
 // Firestore data, so it cannot be filtered on — use Get with the ID
@@ -37,6 +40,7 @@ type Query[T any] struct {
 	ref     *CollectionRef[T]
 	filters []query.Filter
 	orders  []query.Order
+	limit   *int
 }
 
 // Where returns a Query that additionally requires field to equal value.
@@ -80,20 +84,36 @@ func (q *Query[T]) OrderBy(field string, direction query.Direction) *Query[T] {
 	return q.appendOrder(field, direction)
 }
 
+// Limit starts a Query that returns at most n documents. A zero limit is
+// valid and returns no documents.
+func (r *CollectionRef[T]) Limit(n int) *Query[T] {
+	return (&Query[T]{ref: r}).withLimit(n)
+}
+
+// Limit returns a Query with its maximum result count set to n, leaving q
+// unmodified. A later Limit call replaces the previous value.
+func (q *Query[T]) Limit(n int) *Query[T] {
+	return q.withLimit(n)
+}
+
 // appendFilter returns a new Query whose filters are q's filters plus one
 // comparison, leaving q itself unmodified.
 func (q *Query[T]) appendFilter(field string, op query.Operator, value any) *Query[T] {
 	filters := make([]query.Filter, len(q.filters), len(q.filters)+1)
 	copy(filters, q.filters)
 	filters = append(filters, query.Filter{Field: field, Op: op, Value: value})
-	return &Query[T]{ref: q.ref, filters: filters, orders: q.orders}
+	return &Query[T]{ref: q.ref, filters: filters, orders: q.orders, limit: q.limit}
 }
 
 func (q *Query[T]) appendOrder(field string, direction query.Direction) *Query[T] {
 	orders := make([]query.Order, len(q.orders), len(q.orders)+1)
 	copy(orders, q.orders)
 	orders = append(orders, query.Order{Field: field, Direction: direction})
-	return &Query[T]{ref: q.ref, filters: q.filters, orders: orders}
+	return &Query[T]{ref: q.ref, filters: q.filters, orders: orders, limit: q.limit}
+}
+
+func (q *Query[T]) withLimit(n int) *Query[T] {
+	return &Query[T]{ref: q.ref, filters: q.filters, orders: q.orders, limit: &n}
 }
 
 // Documents runs the query and decodes every matching document into a T,
@@ -105,6 +125,9 @@ func (q *Query[T]) appendOrder(field string, direction query.Direction) *Query[T
 // ID field.
 func (q *Query[T]) Documents(ctx context.Context) ([]T, error) {
 	r := q.ref
+	if q.limit != nil && *q.limit < 0 {
+		return nil, fmt.Errorf("firego: query %s: limit %d: %w", r.schema.Collection, *q.limit, ErrInvalidLimit)
+	}
 
 	resolved := make([]query.Filter, len(q.filters))
 	for i, f := range q.filters {
@@ -135,7 +158,7 @@ func (q *Query[T]) Documents(ctx context.Context) ([]T, error) {
 		resolvedOrders[i] = query.Order{Field: sf.FirestoreName, Direction: order.Direction}
 	}
 
-	docs, err := r.store.queryDocuments(ctx, r.schema.Collection, resolved, resolvedOrders)
+	docs, err := r.store.queryDocuments(ctx, r.schema.Collection, resolved, resolvedOrders, q.limit)
 	if err != nil {
 		return nil, fmt.Errorf("firego: query %s: %w", r.schema.Collection, err)
 	}
