@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/mimu-y10/firego/query"
 )
 
 func TestWhereFiltersAndDecodes(t *testing.T) {
@@ -58,6 +60,43 @@ func TestWhereChainCombinesFiltersWithAnd(t *testing.T) {
 	}
 	if len(store.lastQueryFilters) != 2 {
 		t.Fatalf("queryDocuments filters = %v, want exactly 2 filters", store.lastQueryFilters)
+	}
+}
+
+func TestWhereOpForwardsComparisonOperators(t *testing.T) {
+	tests := []query.Operator{
+		query.NotEqual,
+		query.LessThan,
+		query.LessThanOrEqual,
+		query.GreaterThan,
+		query.GreaterThanOrEqual,
+	}
+
+	for _, op := range tests {
+		t.Run(string(op), func(t *testing.T) {
+			store := newFakeStore()
+			ref := newTestRef[testUser](t, store, "users")
+
+			if _, err := ref.WhereOp("Age", op, 30).Documents(context.Background()); err != nil {
+				t.Fatalf("Documents() error = %v", err)
+			}
+			if len(store.lastQueryFilters) != 1 {
+				t.Fatalf("queryDocuments filters = %v, want exactly 1 filter", store.lastQueryFilters)
+			}
+			if got := store.lastQueryFilters[0].Op; got != op {
+				t.Errorf("filter operator = %q, want %q", got, op)
+			}
+		})
+	}
+}
+
+func TestWhereOpRejectsUnsupportedOperator(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	_, err := ref.WhereOp("Age", query.Operator("approximately"), 30).Documents(context.Background())
+	if !errors.Is(err, ErrUnsupportedOperator) {
+		t.Fatalf("Documents() error = %v, want errors.Is(err, ErrUnsupportedOperator)", err)
 	}
 }
 
