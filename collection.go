@@ -127,7 +127,7 @@ type docStore interface {
 	createDocument(ctx context.Context, collection, id string, data map[string]any) error
 	deleteDocument(ctx context.Context, collection, id string) error
 	updateDocument(ctx context.Context, collection, id string, updates []documentUpdate) error
-	queryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]document, error)
+	queryDocuments(ctx context.Context, collection string, filters []query.Filter, orders []query.Order) ([]document, error)
 }
 
 var _ docStore = (*Client)(nil)

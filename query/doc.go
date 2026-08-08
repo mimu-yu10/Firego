@@ -38,3 +38,22 @@ type Filter struct {
 	Op    Operator
 	Value any
 }
+
+// Direction controls a Firestore query's sort direction.
+type Direction string
+
+const (
+	Asc  Direction = "asc"
+	Desc Direction = "desc"
+)
+
+// IsSupported reports whether direction is Asc or Desc.
+func (direction Direction) IsSupported() bool {
+	return direction == Asc || direction == Desc
+}
+
+// Order is one resolved Firestore sort field and direction.
+type Order struct {
+	Field     string
+	Direction Direction
+}
