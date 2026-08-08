@@ -117,6 +117,28 @@ func (c *Client) deleteDocument(ctx context.Context, collection, id string) erro
 	return nil
 }
 
+type documentUpdate struct {
+	field string
+	value any
+}
+
+func (c *Client) updateDocument(ctx context.Context, collection, id string, updates []documentUpdate) error {
+	fsUpdates := make([]firestore.Update, len(updates))
+	for i, update := range updates {
+		fsUpdates[i] = firestore.Update{
+			FieldPath: firestore.FieldPath{update.field},
+			Value:     update.value,
+		}
+	}
+	if _, err := c.firestore.Collection(collection).Doc(id).Update(ctx, fsUpdates); err != nil {
+		if isNotFound(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("client: update %s/%s: %w", collection, id, err)
+	}
+	return nil
+}
+
 // document is one result of a queryDocuments call: a document ID and its data.
 type document struct {
 	ID   string

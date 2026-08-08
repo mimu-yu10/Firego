@@ -191,6 +191,20 @@ func setField(fv reflect.Value, raw any) error {
 	return nil
 }
 
+// NormalizeValue validates raw against target and returns the value converted
+// with the same rules Decode uses. It is useful for partial writes, which do
+// not otherwise pass through Decode's field-level type checks.
+func NormalizeValue(raw any, target reflect.Type) (any, error) {
+	if target == nil {
+		return nil, fmt.Errorf("codec: target type must not be nil")
+	}
+	dst := reflect.New(target).Elem()
+	if err := setField(dst, raw); err != nil {
+		return nil, err
+	}
+	return dst.Interface(), nil
+}
+
 // sameKindFamily reports whether a and b belong to the same broad kind
 // family (both numeric, both string, ...), guarding against reflect's
 // permissive numeric<->string convertibility rules from causing silent,
