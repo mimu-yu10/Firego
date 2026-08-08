@@ -92,6 +92,9 @@ adults, err := users.Where("Age", 30).Documents(ctx)
 
 // Use WhereOp for non-equality comparisons.
 adults, err = users.WhereOp("Age", query.GreaterThanOrEqual, 18).Documents(ctx)
+
+// Membership and array operators use the same builder.
+selected, err := users.WhereOp("Age", query.In, []int{20, 30}).Documents(ctx)
 ```
 
 ## Vision
@@ -119,7 +122,7 @@ err = firego.RunTransaction(ctx, client, func(tx *firego.Tx) error {
 | `internal/metadata`  | Builds a `schema.Schema` from struct tags via reflection | Implemented (internal — not importable outside this module) |
 | `codec`              | Encodes/decodes between structs and `map[string]any`, with type conversion and ID-field access | Implemented |
 | `firego` (top-level) | Firestore client wrapper and public API: `NewClient`, `Collection[T]`, `Get`, `Set`, `Create`, `Update`, `Delete`, `Where`/`Documents` | Implemented |
-| `query`              | Query building                                       | Equality and ordered comparison filters; membership, ordering, limits, and pagination not started |
+| `query`              | Query building                                       | Comparison, membership, and array filters; ordering, limits, and pagination not started |
 | Transactions          | Automatic transaction wrapping for multi-step operations | Not started |
 
 ## Development

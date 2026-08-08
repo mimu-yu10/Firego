@@ -11,13 +11,18 @@ const (
 	LessThanOrEqual    Operator = "<="
 	GreaterThan        Operator = ">"
 	GreaterThanOrEqual Operator = ">="
+	In                 Operator = "in"
+	NotIn              Operator = "not-in"
+	ArrayContains      Operator = "array-contains"
+	ArrayContainsAny   Operator = "array-contains-any"
 )
 
 // IsSupported reports whether op is one of Firego's supported comparison
 // operators.
 func (op Operator) IsSupported() bool {
 	switch op {
-	case Equal, NotEqual, LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual:
+	case Equal, NotEqual, LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual,
+		In, NotIn, ArrayContains, ArrayContainsAny:
 		return true
 	default:
 		return false
