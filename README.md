@@ -61,7 +61,7 @@ if err != nil {
 
 // To use a preconfigured Firestore client (for example, for a named
 // database), wrap it instead:
-// client := firego.NewClientFromFirestore(firestoreClient)
+// client, err := firego.NewClientFromFirestore(firestoreClient)
 
 users, err := firego.Collection[User](client, "users")
 if err != nil {

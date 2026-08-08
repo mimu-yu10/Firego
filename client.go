@@ -18,6 +18,10 @@ import (
 // ErrNotFound is returned when a requested document does not exist.
 var ErrNotFound = errors.New("client: document not found")
 
+// ErrNilFirestoreClient is returned when NewClientFromFirestore is called
+// without an underlying Firestore client.
+var ErrNilFirestoreClient = errors.New("firego: Firestore client must not be nil")
+
 // Client wraps the Google Cloud Firestore client used by Firego.
 type Client struct {
 	firestore *firestore.Client
@@ -30,17 +34,20 @@ func NewClient(ctx context.Context, projectID string, opts ...option.ClientOptio
 	if err != nil {
 		return nil, err
 	}
-	return NewClientFromFirestore(fs), nil
+	return NewClientFromFirestore(fs)
 }
 
 // NewClientFromFirestore creates a Firego client backed by an existing
 // Firestore client. Use it when the underlying client needs configuration
 // that NewClient does not expose, such as a named database.
-func NewClientFromFirestore(client *firestore.Client) *Client {
+func NewClientFromFirestore(client *firestore.Client) (*Client, error) {
+	if client == nil {
+		return nil, ErrNilFirestoreClient
+	}
 	return &Client{
 		firestore: client,
 		registry:  metadata.NewRegistry(),
-	}
+	}, nil
 }
 
 // schemaFor returns the schema for model T and collection, building and

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"cloud.google.com/go/firestore"
 	"github.com/mimu-y10/firego/codec"
 	"github.com/mimu-y10/firego/internal/metadata"
 	"github.com/mimu-y10/firego/query"
@@ -112,8 +113,57 @@ func newTestRef[T any](t *testing.T, store docStore, collection string) *Collect
 }
 
 func TestCollectionRejectsPointerType(t *testing.T) {
-	if _, err := Collection[*testUser](nil, "users"); err == nil {
+	client, err := NewClientFromFirestore(&firestore.Client{})
+	if err != nil {
+		t.Fatalf("NewClientFromFirestore() error = %v", err)
+	}
+	if _, err := Collection[*testUser](client, "users"); err == nil {
 		t.Fatal("Collection[*testUser]() error = nil, want error")
+	}
+}
+
+func TestCollectionRejectsInvalidClient(t *testing.T) {
+	tests := []struct {
+		name   string
+		client *Client
+	}{
+		{name: "nil", client: nil},
+		{name: "zero value", client: &Client{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Collection[testUser](tt.client, "users")
+			if !errors.Is(err, ErrInvalidClient) {
+				t.Fatalf("Collection() error = %v, want errors.Is(err, ErrInvalidClient)", err)
+			}
+		})
+	}
+}
+
+func TestCollectionRejectsInvalidPath(t *testing.T) {
+	client, err := NewClientFromFirestore(&firestore.Client{})
+	if err != nil {
+		t.Fatalf("NewClientFromFirestore() error = %v", err)
+	}
+
+	for _, path := range []string{"", "/", "/users", "users/", "users//posts", "users/alice"} {
+		t.Run(path, func(t *testing.T) {
+			_, err := Collection[testUser](client, path)
+			if !errors.Is(err, ErrInvalidCollectionPath) {
+				t.Fatalf("Collection(%q) error = %v, want errors.Is(err, ErrInvalidCollectionPath)", path, err)
+			}
+		})
+	}
+}
+
+func TestValidateCollectionPathAcceptsCollectionPaths(t *testing.T) {
+	for _, path := range []string{"users", "users/alice/posts"} {
+		t.Run(path, func(t *testing.T) {
+			if err := validateCollectionPath(path); err != nil {
+				t.Errorf("validateCollectionPath(%q) error = %v", path, err)
+			}
+		})
 	}
 }
 
