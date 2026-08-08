@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mimu-y10/firego/client"
 	"github.com/mimu-y10/firego/codec"
 	"github.com/mimu-y10/firego/internal/metadata"
 	"github.com/mimu-y10/firego/query"
@@ -54,7 +53,7 @@ func (f *fakeStore) GetDocument(_ context.Context, collection, id string) (map[s
 	}
 	data, ok := f.docs[f.key(collection, id)]
 	if !ok {
-		return nil, client.ErrNotFound
+		return nil, ErrNotFound
 	}
 	return data, nil
 }
@@ -70,7 +69,7 @@ func (f *fakeStore) SetDocument(_ context.Context, collection, id string, data m
 	return nil
 }
 
-func (f *fakeStore) QueryDocuments(_ context.Context, collection string, filters []query.Filter) ([]client.Document, error) {
+func (f *fakeStore) QueryDocuments(_ context.Context, collection string, filters []query.Filter) ([]Document, error) {
 	f.lastQueryCollection = collection
 	f.lastQueryFilters = filters
 	if f.queryErr != nil {
@@ -78,14 +77,14 @@ func (f *fakeStore) QueryDocuments(_ context.Context, collection string, filters
 	}
 
 	prefix := collection + "/"
-	var docs []client.Document
+	var docs []Document
 	for key, data := range f.docs {
 		id, ok := strings.CutPrefix(key, prefix)
 		if !ok {
 			continue
 		}
 		if matchesAllFilters(data, filters) {
-			docs = append(docs, client.Document{ID: id, Data: data})
+			docs = append(docs, Document{ID: id, Data: data})
 		}
 	}
 	sort.Slice(docs, func(i, j int) bool { return docs[i].ID < docs[j].ID })
@@ -138,9 +137,6 @@ func TestGetPropagatesNotFound(t *testing.T) {
 	ref := newTestRef[testUser](t, store, "users")
 
 	_, err := ref.Get(context.Background(), "missing")
-	if !errors.Is(err, client.ErrNotFound) {
-		t.Fatalf("Get() error = %v, want errors.Is(err, client.ErrNotFound)", err)
-	}
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get() error = %v, want errors.Is(err, firego.ErrNotFound)", err)
 	}

@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/mimu-y10/firego/client"
 	"github.com/mimu-y10/firego/codec"
 	"github.com/mimu-y10/firego/query"
 	"github.com/mimu-y10/firego/schema"
@@ -36,17 +35,17 @@ func validateID(id string) error {
 	return nil
 }
 
-// docStore is the subset of *client.Client that CollectionRef needs. Its
+// docStore is the subset of *Client that CollectionRef needs. Its
 // purpose is testability: CollectionRef's orchestration logic (encode and
 // decode, ID injection, error propagation) can be unit tested against a
 // fake implementing this interface, without a live Firestore connection.
 type docStore interface {
 	GetDocument(ctx context.Context, collection, id string) (map[string]any, error)
 	SetDocument(ctx context.Context, collection, id string, data map[string]any) error
-	QueryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]client.Document, error)
+	QueryDocuments(ctx context.Context, collection string, filters []query.Filter) ([]Document, error)
 }
 
-var _ docStore = (*client.Client)(nil)
+var _ docStore = (*Client)(nil)
 
 // CollectionRef is a type-safe reference to a Firestore collection whose
 // documents map to Go values of type T. Create one with Collection.
@@ -62,12 +61,12 @@ type CollectionRef[T any] struct {
 // Collection returns a reference to the Firestore collection named name,
 // whose documents map to Go values of type T. T must be a struct type, not
 // a pointer — pass User, not *User.
-func Collection[T any](c *client.Client, name string) (*CollectionRef[T], error) {
+func Collection[T any](c *Client, name string) (*CollectionRef[T], error) {
 	if t := reflect.TypeFor[T](); t.Kind() == reflect.Pointer {
 		return nil, fmt.Errorf("firego: Collection[T]: T must not be a pointer type, got %s", t)
 	}
 
-	s, err := client.Schema[T](c, name)
+	s, err := schemaFor[T](c, name)
 	if err != nil {
 		return nil, err
 	}
