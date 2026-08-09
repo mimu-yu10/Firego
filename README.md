@@ -2,9 +2,9 @@
 
 Firego is an object-document mapper (ODM) for [Google Cloud Firestore](https://cloud.google.com/firestore) in Go.
 
-The core idea: your model is a plain Go struct, and Firego takes care of the parts that are usually left to the caller — converting between Firestore's wire types and your struct's field types, and (eventually) wrapping multi-step operations in transactions. You describe the shape of your data with struct tags; Firego handles the rest.
+The core idea: your model is a plain Go struct, and Firego takes care of the parts that are usually left to the caller — converting between Firestore's wire types and your struct's field types, and wrapping multi-step operations in transactions. You describe the shape of your data with struct tags; Firego handles the rest.
 
-> **Status: early development.** Reading and writing a single document by ID works, as do filters, ordering, limits, and cursor pagination — see [Usage](#usage). Transactions are not implemented yet. See [Project status](#project-status) for a package-by-package breakdown. The transaction API shown in [Vision](#vision) is a design target, not a guarantee of the final shape.
+> **Status: early development.** Reading and writing a single document by ID works, as do filters, ordering, limits, cursor pagination, and transactions — see [Usage](#usage). See [Project status](#project-status) for a package-by-package breakdown.
 
 ## Why Firego
 
@@ -47,9 +47,9 @@ Embedded structs are promoted into the parent's field list — matching `encodin
 - **Schema discovery** (`internal/metadata`): builds a `schema.Schema` for a model type from its struct tags, including embedded-field promotion and ID-field validation. A `Registry` caches the resulting schema per model type and collection, so repeated lookups for the same pair skip reflection after the first call.
 - **Codec** (`codec`): given a `schema.Schema`, encodes a struct into a `map[string]any` and decodes a `map[string]any` back into a struct, converting between compatible types (for example, Firestore's `int64` into a Go `int` field) while rejecting conversions that cross incompatible kind families (e.g. string into int). Also reads and writes the ID field (`ID`/`SetID`), independently of the document body.
 - **Query** (`query`): the typed comparison operators and `Filter` type shared by the root package's query implementation.
-- **Firego** (`firego`, the top-level package): the public entry point and Firestore client wrapper. `NewClient` creates a client with a per-model schema cache; `Collection[T]` returns a type-safe `CollectionRef[T]` whose `Get`, `Set`, `Create`, and `Delete` methods handle encoding, decoding, and ID-field wiring so callers only deal with plain structs. `CollectionRef[T].Where` starts a `Query[T]`, an immutable, chainable equality filter that `Documents` runs, decoding every match into a `[]T` with each result's ID field populated the same way `Get` populates it.
+- **Firego** (`firego`, the top-level package): the public entry point and Firestore client wrapper. `NewClient` creates a client with a per-model schema cache; `Collection[T]` returns a type-safe `CollectionRef[T]` whose `Get`, `Set`, `Create`, and `Delete` methods handle encoding, decoding, and ID-field wiring so callers only deal with plain structs. `CollectionRef[T].Where` starts a `Query[T]`, an immutable, chainable equality filter that `Documents` runs, decoding every match into a `[]T` with each result's ID field populated the same way `Get` populates it. `RunTransaction` wraps a callback in a Firestore transaction; `CollectionRef[T].Tx` returns a `TxCollectionRef[T]` with the same `Get`/`Set`/`Create`/`Delete`/`Update` methods, scoped to that transaction.
 
-These packages are exercised by the test suite. `Get`/`Set`/`Where`'s encode/decode/error-propagation logic is covered end-to-end against an in-memory fake; the thin adapter that calls the real Firestore SDK is not yet covered by an automated test beyond its NotFound-mapping logic, since no Firestore emulator is available in this environment yet.
+These packages are exercised by the test suite. `Get`/`Set`/`Where`/`Tx`'s encode/decode/error-propagation logic is covered end-to-end against an in-memory fake; the thin adapter that calls the real Firestore SDK is not yet covered by an automated test beyond its NotFound-mapping logic, since no Firestore emulator is available in this environment yet.
 
 ## Usage
 
@@ -106,16 +106,11 @@ firstPage, err := users.OrderBy("Age", query.Asc).Limit(20).Documents(ctx)
 // page. Values must match the query's OrderBy fields, in order.
 lastAge := firstPage[len(firstPage)-1].Age
 nextPage, err := users.OrderBy("Age", query.Asc).StartAfter(lastAge).Limit(20).Documents(ctx)
-```
 
-## Vision
-
-Transactions are not implemented yet. The target shape — not a guarantee of the final API — looks roughly like this:
-
-```go
-// Multi-step operations run inside a Firestore transaction without the
-// caller writing RunTransaction themselves.
-err = firego.RunTransaction(ctx, client, func(tx *firego.Tx) error {
+// RunTransaction wraps a multi-step read-modify-write in a Firestore
+// transaction. CollectionRef[T].Tx swaps in the transaction-scoped Get/Set;
+// all reads through tx must happen before any writes, per Firestore's rules.
+err = firego.RunTransaction(ctx, client, func(ctx context.Context, tx *firego.Tx) error {
 	u, err := users.Tx(tx).Get(ctx, "user-123")
 	if err != nil {
 		return err
@@ -134,7 +129,7 @@ err = firego.RunTransaction(ctx, client, func(tx *firego.Tx) error {
 | `codec`              | Encodes/decodes between structs and `map[string]any`, with type conversion and ID-field access | Implemented |
 | `firego` (top-level) | Firestore client wrapper and public API: `NewClient`, `Collection[T]`, `Get`, `Set`, `Create`, `Update`, `Delete`, `Where`/`Documents` | Implemented |
 | `query`              | Query building                                       | Filters, ordering, limits, and cursor pagination (`StartAt`/`StartAfter`/`EndAt`/`EndBefore`) |
-| Transactions          | Automatic transaction wrapping for multi-step operations | Not started |
+| Transactions          | Automatic transaction wrapping for multi-step operations | Implemented: `RunTransaction`, `CollectionRef[T].Tx`. Querying (`Where`/`Documents`) within a transaction is not supported. |
 
 ## Development
 
