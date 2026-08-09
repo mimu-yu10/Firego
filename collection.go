@@ -117,16 +117,22 @@ func validateCollectionPath(path string) error {
 	return nil
 }
 
-// docStore is the subset of *Client that CollectionRef needs. Its
-// purpose is testability: CollectionRef's orchestration logic (encode and
-// decode, ID injection, error propagation) can be unit tested against a
+// crudStore is the subset of *Client needed to read and write individual
+// documents. Its purpose is testability: this orchestration logic (encode
+// and decode, ID injection, error propagation) can be unit tested against a
 // fake implementing this interface, without a live Firestore connection.
-type docStore interface {
+type crudStore interface {
 	getDocument(ctx context.Context, collection, id string) (map[string]any, error)
 	setDocument(ctx context.Context, collection, id string, data map[string]any) error
 	createDocument(ctx context.Context, collection, id string, data map[string]any) error
 	deleteDocument(ctx context.Context, collection, id string) error
 	updateDocument(ctx context.Context, collection, id string, updates []documentUpdate) error
+}
+
+// docStore additionally supports queries, which CollectionRef needs but a
+// transaction-scoped store does not.
+type docStore interface {
+	crudStore
 	queryDocuments(ctx context.Context, collection string, filters []query.Filter, orders []query.Order, limit *int, start, end *query.Cursor) ([]document, error)
 }
 
@@ -177,26 +183,7 @@ func Collection[T any](c *Client, name string) (*CollectionRef[T], error) {
 // errors.Is(err, ErrEmptyID) or errors.Is(err, ErrInvalidID) if id is empty
 // or contains a "/", without making a request.
 func (r *CollectionRef[T]) Get(ctx context.Context, id string) (T, error) {
-	var v T
-
-	if id == "" {
-		return v, fmt.Errorf("firego: get %s: %w", r.schema.Collection, ErrEmptyID)
-	}
-	if err := validateID(id); err != nil {
-		return v, fmt.Errorf("firego: get %s/%s: %w", r.schema.Collection, id, err)
-	}
-
-	data, err := r.store.getDocument(ctx, r.schema.Collection, id)
-	if err != nil {
-		return v, fmt.Errorf("firego: get %s/%s: %w", r.schema.Collection, id, err)
-	}
-	if err := r.codec.Decode(data, &v); err != nil {
-		return v, fmt.Errorf("firego: get %s/%s: decode: %w", r.schema.Collection, id, err)
-	}
-	if err := r.codec.SetID(&v, id); err != nil {
-		return v, fmt.Errorf("firego: get %s/%s: set id: %w", r.schema.Collection, id, err)
-	}
-	return v, nil
+	return getDoc[T](ctx, r.store, r.schema, r.codec, id)
 }
 
 // Set writes v to the document identified by v's ID field, creating it if
@@ -207,114 +194,158 @@ func (r *CollectionRef[T]) Get(ctx context.Context, id string) (T, error) {
 // IDs. Set returns an error satisfying errors.Is(err, ErrNoIDField) or
 // errors.Is(err, ErrEmptyID) if either precondition isn't met.
 func (r *CollectionRef[T]) Set(ctx context.Context, v T) error {
-	if r.schema.IDField == nil {
-		return fmt.Errorf("firego: %s: %w", r.schema.Name, ErrNoIDField)
-	}
-
-	id, err := r.codec.ID(v)
-	if err != nil {
-		return fmt.Errorf("firego: set %s: %w", r.schema.Collection, err)
-	}
-	if id == "" {
-		return fmt.Errorf("firego: %s.%s: %w", r.schema.Name, r.schema.IDField.Name, ErrEmptyID)
-	}
-	if err := validateID(id); err != nil {
-		return fmt.Errorf("firego: set %s/%s: %w", r.schema.Collection, id, err)
-	}
-
-	data, err := r.codec.Encode(v)
-	if err != nil {
-		return fmt.Errorf("firego: set %s/%s: encode: %w", r.schema.Collection, id, err)
-	}
-	if err := r.store.setDocument(ctx, r.schema.Collection, id, data); err != nil {
-		return fmt.Errorf("firego: set %s/%s: %w", r.schema.Collection, id, err)
-	}
-	return nil
+	return setDoc(ctx, r.store, r.schema, r.codec, v)
 }
 
 // Create writes v as a new document identified by v's ID field. It returns
 // an error satisfying errors.Is(err, ErrAlreadyExists) if that document
 // already exists.
 func (r *CollectionRef[T]) Create(ctx context.Context, v T) error {
-	if r.schema.IDField == nil {
-		return fmt.Errorf("firego: %s: %w", r.schema.Name, ErrNoIDField)
-	}
-
-	id, err := r.codec.ID(v)
-	if err != nil {
-		return fmt.Errorf("firego: create %s: %w", r.schema.Collection, err)
-	}
-	if id == "" {
-		return fmt.Errorf("firego: %s.%s: %w", r.schema.Name, r.schema.IDField.Name, ErrEmptyID)
-	}
-	if err := validateID(id); err != nil {
-		return fmt.Errorf("firego: create %s/%s: %w", r.schema.Collection, id, err)
-	}
-
-	data, err := r.codec.Encode(v)
-	if err != nil {
-		return fmt.Errorf("firego: create %s/%s: encode: %w", r.schema.Collection, id, err)
-	}
-	if err := r.store.createDocument(ctx, r.schema.Collection, id, data); err != nil {
-		return fmt.Errorf("firego: create %s/%s: %w", r.schema.Collection, id, err)
-	}
-	return nil
+	return createDoc(ctx, r.store, r.schema, r.codec, v)
 }
 
 // Delete removes the document with id. Deleting a document that does not
 // exist succeeds, matching Firestore's idempotent delete semantics.
 func (r *CollectionRef[T]) Delete(ctx context.Context, id string) error {
-	if id == "" {
-		return fmt.Errorf("firego: delete %s: %w", r.schema.Collection, ErrEmptyID)
-	}
-	if err := validateID(id); err != nil {
-		return fmt.Errorf("firego: delete %s/%s: %w", r.schema.Collection, id, err)
-	}
-	if err := r.store.deleteDocument(ctx, r.schema.Collection, id); err != nil {
-		return fmt.Errorf("firego: delete %s/%s: %w", r.schema.Collection, id, err)
-	}
-	return nil
+	return deleteDoc(ctx, r.store, r.schema, id)
 }
 
 // Update changes selected fields on an existing document. FieldUpdate.Field
 // names a Go struct field, which Firego resolves to its Firestore field name.
 func (r *CollectionRef[T]) Update(ctx context.Context, id string, updates ...FieldUpdate) error {
+	return updateDoc(ctx, r.store, r.schema, id, updates)
+}
+
+// getDoc implements Get, shared by CollectionRef and TxCollectionRef.
+func getDoc[T any](ctx context.Context, store crudStore, s *schema.Schema, c codec.Codec, id string) (T, error) {
+	var v T
+
 	if id == "" {
-		return fmt.Errorf("firego: update %s: %w", r.schema.Collection, ErrEmptyID)
+		return v, fmt.Errorf("firego: get %s: %w", s.Collection, ErrEmptyID)
 	}
 	if err := validateID(id); err != nil {
-		return fmt.Errorf("firego: update %s/%s: %w", r.schema.Collection, id, err)
+		return v, fmt.Errorf("firego: get %s/%s: %w", s.Collection, id, err)
+	}
+
+	data, err := store.getDocument(ctx, s.Collection, id)
+	if err != nil {
+		return v, fmt.Errorf("firego: get %s/%s: %w", s.Collection, id, err)
+	}
+	if err := c.Decode(data, &v); err != nil {
+		return v, fmt.Errorf("firego: get %s/%s: decode: %w", s.Collection, id, err)
+	}
+	if err := c.SetID(&v, id); err != nil {
+		return v, fmt.Errorf("firego: get %s/%s: set id: %w", s.Collection, id, err)
+	}
+	return v, nil
+}
+
+// setDoc implements Set, shared by CollectionRef and TxCollectionRef.
+func setDoc[T any](ctx context.Context, store crudStore, s *schema.Schema, c codec.Codec, v T) error {
+	if s.IDField == nil {
+		return fmt.Errorf("firego: %s: %w", s.Name, ErrNoIDField)
+	}
+
+	id, err := c.ID(v)
+	if err != nil {
+		return fmt.Errorf("firego: set %s: %w", s.Collection, err)
+	}
+	if id == "" {
+		return fmt.Errorf("firego: %s.%s: %w", s.Name, s.IDField.Name, ErrEmptyID)
+	}
+	if err := validateID(id); err != nil {
+		return fmt.Errorf("firego: set %s/%s: %w", s.Collection, id, err)
+	}
+
+	data, err := c.Encode(v)
+	if err != nil {
+		return fmt.Errorf("firego: set %s/%s: encode: %w", s.Collection, id, err)
+	}
+	if err := store.setDocument(ctx, s.Collection, id, data); err != nil {
+		return fmt.Errorf("firego: set %s/%s: %w", s.Collection, id, err)
+	}
+	return nil
+}
+
+// createDoc implements Create, shared by CollectionRef and TxCollectionRef.
+func createDoc[T any](ctx context.Context, store crudStore, s *schema.Schema, c codec.Codec, v T) error {
+	if s.IDField == nil {
+		return fmt.Errorf("firego: %s: %w", s.Name, ErrNoIDField)
+	}
+
+	id, err := c.ID(v)
+	if err != nil {
+		return fmt.Errorf("firego: create %s: %w", s.Collection, err)
+	}
+	if id == "" {
+		return fmt.Errorf("firego: %s.%s: %w", s.Name, s.IDField.Name, ErrEmptyID)
+	}
+	if err := validateID(id); err != nil {
+		return fmt.Errorf("firego: create %s/%s: %w", s.Collection, id, err)
+	}
+
+	data, err := c.Encode(v)
+	if err != nil {
+		return fmt.Errorf("firego: create %s/%s: encode: %w", s.Collection, id, err)
+	}
+	if err := store.createDocument(ctx, s.Collection, id, data); err != nil {
+		return fmt.Errorf("firego: create %s/%s: %w", s.Collection, id, err)
+	}
+	return nil
+}
+
+// deleteDoc implements Delete, shared by CollectionRef and TxCollectionRef.
+func deleteDoc(ctx context.Context, store crudStore, s *schema.Schema, id string) error {
+	if id == "" {
+		return fmt.Errorf("firego: delete %s: %w", s.Collection, ErrEmptyID)
+	}
+	if err := validateID(id); err != nil {
+		return fmt.Errorf("firego: delete %s/%s: %w", s.Collection, id, err)
+	}
+	if err := store.deleteDocument(ctx, s.Collection, id); err != nil {
+		return fmt.Errorf("firego: delete %s/%s: %w", s.Collection, id, err)
+	}
+	return nil
+}
+
+// updateDoc implements Update, shared by CollectionRef and TxCollectionRef.
+func updateDoc(ctx context.Context, store crudStore, s *schema.Schema, id string, updates []FieldUpdate) error {
+	if id == "" {
+		return fmt.Errorf("firego: update %s: %w", s.Collection, ErrEmptyID)
+	}
+	if err := validateID(id); err != nil {
+		return fmt.Errorf("firego: update %s/%s: %w", s.Collection, id, err)
 	}
 	if len(updates) == 0 {
-		return fmt.Errorf("firego: update %s/%s: %w", r.schema.Collection, id, ErrEmptyUpdates)
+		return fmt.Errorf("firego: update %s/%s: %w", s.Collection, id, ErrEmptyUpdates)
 	}
 
 	resolved := make([]documentUpdate, len(updates))
 	for i, update := range updates {
-		field, ok := r.schema.FieldByName(update.Field)
+		field, ok := s.FieldByName(update.Field)
 		if !ok {
-			return fmt.Errorf("firego: update %s/%s: field %q: %w", r.schema.Collection, id, update.Field, ErrUnknownField)
+			return fmt.Errorf("firego: update %s/%s: field %q: %w", s.Collection, id, update.Field, ErrUnknownField)
 		}
 		if field.IsID {
-			return fmt.Errorf("firego: update %s/%s: field %q: %w", r.schema.Collection, id, update.Field, ErrIDFieldNotWritable)
+			return fmt.Errorf("firego: update %s/%s: field %q: %w", s.Collection, id, update.Field, ErrIDFieldNotWritable)
 		}
 
 		value := update.Value
 		sentinel, err := validateFirestoreSentinel(value, field.GoType)
 		if err != nil {
-			return fmt.Errorf("firego: update %s/%s: field %q: %w: %v", r.schema.Collection, id, update.Field, ErrInvalidUpdateValue, err)
+			return fmt.Errorf("firego: update %s/%s: field %q: %w: %v", s.Collection, id, update.Field, ErrInvalidUpdateValue, err)
 		}
 		if !sentinel {
 			value, err = codec.NormalizeValue(value, field.GoType)
 			if err != nil {
-				return fmt.Errorf("firego: update %s/%s: field %q: %w: %v", r.schema.Collection, id, update.Field, ErrInvalidUpdateValue, err)
+				return fmt.Errorf("firego: update %s/%s: field %q: %w: %v", s.Collection, id, update.Field, ErrInvalidUpdateValue, err)
 			}
 		}
 		resolved[i] = documentUpdate{field: field.FirestoreName, value: value}
 	}
 
-	if err := r.store.updateDocument(ctx, r.schema.Collection, id, resolved); err != nil {
-		return fmt.Errorf("firego: update %s/%s: %w", r.schema.Collection, id, err)
+	if err := store.updateDocument(ctx, s.Collection, id, resolved); err != nil {
+		return fmt.Errorf("firego: update %s/%s: %w", s.Collection, id, err)
 	}
 	return nil
 }
