@@ -29,12 +29,13 @@ var ErrInvalidLimit = errors.New("firego: query limit must not be negative")
 // one OrderBy is required.
 var ErrCursorRequiresOrderBy = errors.New("firego: query cursor requires at least one OrderBy")
 
-// ErrCursorValueCount is returned when a cursor method supplies more values
-// than the query has OrderBy calls. Firestore cursor values identify a
+// ErrCursorValueCount is returned when a cursor method's value count falls
+// outside [1, len(OrderBy calls)]. Firestore cursor values identify a
 // prefix of the ordered position, so supplying fewer values than orderings
-// is valid — supplying more is not, since there is no ordering left for the
-// extra values to refer to.
-var ErrCursorValueCount = errors.New("firego: query cursor must not supply more values than OrderBy calls")
+// is valid, but at least one is required — a cursor with no values
+// identifies no position — and supplying more is invalid, since there is no
+// ordering left for the extra values to refer to.
+var ErrCursorValueCount = errors.New("firego: query cursor value count must be between 1 and the number of OrderBy calls")
 
 // ErrIDFieldNotQueryable is returned by (*Query[T]).Documents when a Where
 // call named the model's ID field. A document's ID is not part of its
@@ -133,11 +134,10 @@ func (q *Query[T]) withLimit(n int) *Query[T] {
 
 // StartAt starts a Query that begins at the document whose OrderBy fields
 // equal values, inclusive. values identifies a prefix of the ordered
-// position: it may supply anywhere from one value up to one value per
+// position: it must supply at least one value, and at most one value per
 // OrderBy call, in the same order OrderBy was called. Documents reports
 // ErrCursorRequiresOrderBy if the query has no OrderBy calls, or
-// ErrCursorValueCount if values has more entries than there are OrderBy
-// calls.
+// ErrCursorValueCount if values's length falls outside that range.
 func (r *CollectionRef[T]) StartAt(values ...any) *Query[T] {
 	return (&Query[T]{ref: r}).withStart(query.StartAt, values)
 }
@@ -250,8 +250,8 @@ func (q *Query[T]) Documents(ctx context.Context) ([]T, error) {
 		}
 	}
 	for _, cursor := range []*query.Cursor{q.start, q.end} {
-		if cursor != nil && len(cursor.Values) > len(resolvedOrders) {
-			return nil, fmt.Errorf("firego: query %s: cursor has %d value(s), only %d OrderBy call(s): %w",
+		if cursor != nil && (len(cursor.Values) == 0 || len(cursor.Values) > len(resolvedOrders)) {
+			return nil, fmt.Errorf("firego: query %s: cursor has %d value(s), want 1 to %d: %w",
 				r.schema.Collection, len(cursor.Values), len(resolvedOrders), ErrCursorValueCount)
 		}
 	}

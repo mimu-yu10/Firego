@@ -423,6 +423,20 @@ func TestCursorRejectsValueCountExceedingOrderBy(t *testing.T) {
 	}
 }
 
+// TestCursorRejectsEmptyValues guards against a zero-length cursor (e.g.
+// StartAfter() called with no arguments) reaching the store: it identifies
+// no position at all, which Firestore could turn into an unbounded result or
+// a backend error instead of a clear local validation failure.
+func TestCursorRejectsEmptyValues(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	_, err := ref.OrderBy("Age", query.Asc).StartAfter().Documents(context.Background())
+	if !errors.Is(err, ErrCursorValueCount) {
+		t.Fatalf("Documents() error = %v, want errors.Is(err, ErrCursorValueCount)", err)
+	}
+}
+
 func TestWhereResolvesShadowedFieldToTopLevel(t *testing.T) {
 	store := newFakeStore()
 	ref := newTestRef[testShadowedField](t, store, "items")
