@@ -73,8 +73,9 @@ const (
 )
 
 // Cursor bounds a query's result set relative to a document position,
-// matching Firestore's query cursor semantics. Values supplies one value per
-// OrderBy field on the query, in the same order.
+// matching Firestore's query cursor semantics. Values identifies a prefix of
+// the query's OrderBy fields, in the same order: it may hold anywhere from
+// one value up to one value per OrderBy field, but never more.
 type Cursor struct {
 	Bound  CursorBound
 	Values []any

@@ -132,10 +132,12 @@ func (q *Query[T]) withLimit(n int) *Query[T] {
 }
 
 // StartAt starts a Query that begins at the document whose OrderBy fields
-// equal values, inclusive. values must supply exactly one value per OrderBy
-// call, in the same order OrderBy was called; Documents reports
+// equal values, inclusive. values identifies a prefix of the ordered
+// position: it may supply anywhere from one value up to one value per
+// OrderBy call, in the same order OrderBy was called. Documents reports
 // ErrCursorRequiresOrderBy if the query has no OrderBy calls, or
-// ErrCursorValueCount if the counts don't match.
+// ErrCursorValueCount if values has more entries than there are OrderBy
+// calls.
 func (r *CollectionRef[T]) StartAt(values ...any) *Query[T] {
 	return (&Query[T]{ref: r}).withStart(query.StartAt, values)
 }
@@ -162,7 +164,8 @@ func (q *Query[T]) StartAfter(values ...any) *Query[T] {
 }
 
 // EndAt starts a Query that ends at the document whose OrderBy fields equal
-// values, inclusive. See StartAt for the value-count requirements.
+// values, inclusive. See StartAt for how values may cover a prefix of the
+// OrderBy fields.
 func (r *CollectionRef[T]) EndAt(values ...any) *Query[T] {
 	return (&Query[T]{ref: r}).withEnd(query.EndAt, values)
 }

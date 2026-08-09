@@ -99,10 +99,12 @@ selected, err := users.WhereOp("Age", query.In, []int{20, 30}).Documents(ctx)
 // OrderBy calls are immutable and may be chained after filters.
 youngestFirst, err := users.Where("Active", true).OrderBy("Age", query.Asc).Documents(ctx)
 
-// Limit caps the number of returned documents. Age alone isn't unique, so
-// pages are ordered by Age then CreatedAt as a tie-breaker — otherwise users
-// sharing an age at the page boundary could be split across pages
-// inconsistently.
+// Limit caps the number of returned documents. Cursor pagination needs a
+// tie-breaker that's actually unique across the collection, or ties at the
+// page boundary can be split across pages inconsistently — Age alone isn't
+// unique, and neither is CreatedAt on its own if your writes can share a
+// timestamp; use whatever field (or combination) your schema genuinely
+// guarantees is unique. This example assumes CreatedAt is.
 firstPage, err := users.OrderBy("Age", query.Asc).OrderBy("CreatedAt", query.Asc).Limit(20).Documents(ctx)
 
 // StartAfter fetches the next page following the last result of a previous
