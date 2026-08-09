@@ -57,3 +57,25 @@ type Order struct {
 	Field     string
 	Direction Direction
 }
+
+// CursorBound identifies which edge of a result set a Cursor bounds.
+type CursorBound int
+
+const (
+	// StartAt includes the matching document (and everything after it).
+	StartAt CursorBound = iota
+	// StartAfter excludes the matching document, starting after it.
+	StartAfter
+	// EndAt includes the matching document (and everything before it).
+	EndAt
+	// EndBefore excludes the matching document, ending before it.
+	EndBefore
+)
+
+// Cursor bounds a query's result set relative to a document position,
+// matching Firestore's query cursor semantics. Values supplies one value per
+// OrderBy field on the query, in the same order.
+type Cursor struct {
+	Bound  CursorBound
+	Values []any
+}
