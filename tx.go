@@ -2,6 +2,7 @@ package firego
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"cloud.google.com/go/firestore"
@@ -41,10 +42,34 @@ func RunTransaction(ctx context.Context, c *Client, fn func(ctx context.Context,
 		return ErrInvalidClient
 	}
 	err := c.firestore.RunTransaction(ctx, func(ctx context.Context, ft *firestore.Transaction) error {
-		return fn(ctx, &Tx{client: c, tx: ft})
+		if err := fn(ctx, &Tx{client: c, tx: ft}); err != nil {
+			return &fnError{err: err}
+		}
+		return nil
 	})
+	var wrapped *fnError
+	if errors.As(err, &wrapped) {
+		return wrapped.err
+	}
 	return mapCommitError(err)
 }
+
+// fnError marks an error as having come from RunTransaction's callback,
+// rather than from Firestore committing the transaction, so RunTransaction
+// can return it unchanged instead of running it through mapCommitError. A
+// callback can itself return a gRPC AlreadyExists or NotFound error (e.g.
+// from an unrelated service call); without this distinction that error
+// would be misreported as a failed Create or Update.
+//
+// Unwrap exposes the original error to errors.As, so the underlying SDK's
+// own status.FromError-based checks (its retry-on-Aborted logic) still see
+// through the wrapper.
+type fnError struct {
+	err error
+}
+
+func (e *fnError) Error() string { return e.err.Error() }
+func (e *fnError) Unwrap() error { return e.err }
 
 // mapCommitError maps errors Firestore reports only once a transaction
 // commits — as opposed to when the Tx write that caused them was issued —

@@ -52,6 +52,33 @@ func TestRunTransactionRejectsZeroValueClient(t *testing.T) {
 // method that issued the write is called — so a bare gRPC status from the
 // commit, rather than an error already wrapping ErrAlreadyExists/ErrNotFound,
 // is exactly what RunTransaction receives in practice.
+// TestFnErrorPreservesStatusAndUnwraps guards the mechanism RunTransaction
+// relies on to tell a callback-returned error apart from a commit-time one:
+// fnError must still expose the original gRPC status through errors.As (so
+// mapCommitError doesn't misclassify a callback's own AlreadyExists/NotFound
+// as a failed Create/Update), and status.Code must still see through it (so
+// the underlying SDK's retry-on-Aborted logic isn't disturbed by wrapping).
+func TestFnErrorPreservesStatusAndUnwraps(t *testing.T) {
+	original := status.Error(codes.AlreadyExists, "boom")
+	wrapped := &fnError{err: original}
+
+	if got := wrapped.Unwrap(); got != original {
+		t.Errorf("Unwrap() = %v, want %v", got, original)
+	}
+
+	var target *fnError
+	if !errors.As(error(wrapped), &target) {
+		t.Fatal("errors.As(wrapped, &fnError{}) = false, want true")
+	}
+	if target.err != original {
+		t.Errorf("target.err = %v, want %v", target.err, original)
+	}
+
+	if code := status.Code(wrapped); code != codes.AlreadyExists {
+		t.Errorf("status.Code(wrapped) = %v, want %v", code, codes.AlreadyExists)
+	}
+}
+
 func TestMapCommitError(t *testing.T) {
 	tests := []struct {
 		name string
