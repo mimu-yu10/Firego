@@ -379,11 +379,25 @@ func TestCursorRejectsMissingOrderBy(t *testing.T) {
 	}
 }
 
-func TestCursorRejectsValueCountMismatch(t *testing.T) {
+// TestCursorAllowsOrderingPrefix exercises Firestore's field-value cursor
+// semantics: a cursor's values identify a prefix of the ordered position, so
+// supplying fewer values than there are OrderBy calls is valid (e.g.
+// OrderBy("State").OrderBy("Population").StartAt("California")).
+func TestCursorAllowsOrderingPrefix(t *testing.T) {
 	store := newFakeStore()
 	ref := newTestRef[testUser](t, store, "users")
 
 	_, err := ref.OrderBy("Age", query.Asc).OrderBy("Name", query.Asc).StartAfter(30).Documents(context.Background())
+	if err != nil {
+		t.Fatalf("Documents() error = %v, want nil (cursor values may cover an OrderBy prefix)", err)
+	}
+}
+
+func TestCursorRejectsValueCountExceedingOrderBy(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	_, err := ref.OrderBy("Age", query.Asc).StartAfter(30, "Alice").Documents(context.Background())
 	if !errors.Is(err, ErrCursorValueCount) {
 		t.Fatalf("Documents() error = %v, want errors.Is(err, ErrCursorValueCount)", err)
 	}

@@ -29,9 +29,12 @@ var ErrInvalidLimit = errors.New("firego: query limit must not be negative")
 // one OrderBy is required.
 var ErrCursorRequiresOrderBy = errors.New("firego: query cursor requires at least one OrderBy")
 
-// ErrCursorValueCount is returned when a cursor method's values don't match
-// the number of OrderBy calls on the query, one value per ordered field.
-var ErrCursorValueCount = errors.New("firego: query cursor value count must match OrderBy count")
+// ErrCursorValueCount is returned when a cursor method supplies more values
+// than the query has OrderBy calls. Firestore cursor values identify a
+// prefix of the ordered position, so supplying fewer values than orderings
+// is valid — supplying more is not, since there is no ordering left for the
+// extra values to refer to.
+var ErrCursorValueCount = errors.New("firego: query cursor must not supply more values than OrderBy calls")
 
 // ErrIDFieldNotQueryable is returned by (*Query[T]).Documents when a Where
 // call named the model's ID field. A document's ID is not part of its
@@ -244,8 +247,8 @@ func (q *Query[T]) Documents(ctx context.Context) ([]T, error) {
 		}
 	}
 	for _, cursor := range []*query.Cursor{q.start, q.end} {
-		if cursor != nil && len(cursor.Values) != len(resolvedOrders) {
-			return nil, fmt.Errorf("firego: query %s: cursor has %d value(s), OrderBy has %d: %w",
+		if cursor != nil && len(cursor.Values) > len(resolvedOrders) {
+			return nil, fmt.Errorf("firego: query %s: cursor has %d value(s), only %d OrderBy call(s): %w",
 				r.schema.Collection, len(cursor.Values), len(resolvedOrders), ErrCursorValueCount)
 		}
 	}
