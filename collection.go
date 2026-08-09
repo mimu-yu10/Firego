@@ -46,6 +46,14 @@ var ErrIDFieldNotWritable = errors.New("firego: ID field cannot be updated")
 // with the model field it targets.
 var ErrInvalidUpdateValue = errors.New("firego: invalid update value")
 
+// ErrClientMismatch is returned by CollectionRef[T].Tx when tx was not
+// opened on the same *Client that the CollectionRef was created from. Every
+// Tx method builds its document references from the Client it was opened
+// with, so honoring a CollectionRef built against a different Client
+// (most notably, one pointed at a different named database) would silently
+// read and write the wrong place instead of failing loudly.
+var ErrClientMismatch = errors.New("firego: transaction was not opened on this collection's client")
+
 // FieldUpdate assigns Value to the model field named Field. Field uses the Go
 // struct field name; Firego resolves its Firestore name from the model schema.
 type FieldUpdate struct {
@@ -117,10 +125,11 @@ func validateCollectionPath(path string) error {
 	return nil
 }
 
-// crudStore is the subset of *Client needed to read and write individual
-// documents. Its purpose is testability: this orchestration logic (encode
-// and decode, ID injection, error propagation) can be unit tested against a
-// fake implementing this interface, without a live Firestore connection.
+// crudStore is the subset of *Client that both CollectionRef and
+// TxCollectionRef need for reading and writing individual documents. Its
+// purpose is testability: their orchestration logic (encode and decode, ID
+// injection, error propagation) can be unit tested against a fake
+// implementing this interface, without a live Firestore connection.
 type crudStore interface {
 	getDocument(ctx context.Context, collection, id string) (map[string]any, error)
 	setDocument(ctx context.Context, collection, id string, data map[string]any) error
@@ -129,8 +138,8 @@ type crudStore interface {
 	updateDocument(ctx context.Context, collection, id string, updates []documentUpdate) error
 }
 
-// docStore additionally supports queries, which CollectionRef needs but a
-// transaction-scoped store does not.
+// docStore additionally supports queries, which are only available outside
+// a transaction.
 type docStore interface {
 	crudStore
 	queryDocuments(ctx context.Context, collection string, filters []query.Filter, orders []query.Order, limit *int, start, end *query.Cursor) ([]document, error)
