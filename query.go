@@ -188,14 +188,14 @@ func (q *Query[T]) EndBefore(values ...any) *Query[T] {
 func (q *Query[T]) withStart(bound query.CursorBound, values []any) *Query[T] {
 	return &Query[T]{
 		ref: q.ref, filters: q.filters, orders: q.orders, limit: q.limit,
-		start: &query.Cursor{Bound: bound, Values: values}, end: q.end,
+		start: &query.Cursor{Bound: bound, Values: append([]any(nil), values...)}, end: q.end,
 	}
 }
 
 func (q *Query[T]) withEnd(bound query.CursorBound, values []any) *Query[T] {
 	return &Query[T]{
 		ref: q.ref, filters: q.filters, orders: q.orders, limit: q.limit,
-		start: q.start, end: &query.Cursor{Bound: bound, Values: values},
+		start: q.start, end: &query.Cursor{Bound: bound, Values: append([]any(nil), values...)},
 	}
 }
 

@@ -99,13 +99,17 @@ selected, err := users.WhereOp("Age", query.In, []int{20, 30}).Documents(ctx)
 // OrderBy calls are immutable and may be chained after filters.
 youngestFirst, err := users.Where("Active", true).OrderBy("Age", query.Asc).Documents(ctx)
 
-// Limit caps the number of returned documents.
-firstPage, err := users.OrderBy("Age", query.Asc).Limit(20).Documents(ctx)
+// Limit caps the number of returned documents. Age alone isn't unique, so
+// pages are ordered by Age then CreatedAt as a tie-breaker — otherwise users
+// sharing an age at the page boundary could be split across pages
+// inconsistently.
+firstPage, err := users.OrderBy("Age", query.Asc).OrderBy("CreatedAt", query.Asc).Limit(20).Documents(ctx)
 
 // StartAfter fetches the next page following the last result of a previous
 // page. Values must match the query's OrderBy fields, in order.
-lastAge := firstPage[len(firstPage)-1].Age
-nextPage, err := users.OrderBy("Age", query.Asc).StartAfter(lastAge).Limit(20).Documents(ctx)
+last := firstPage[len(firstPage)-1]
+nextPage, err := users.OrderBy("Age", query.Asc).OrderBy("CreatedAt", query.Asc).
+	StartAfter(last.Age, last.CreatedAt).Limit(20).Documents(ctx)
 ```
 
 ## Vision

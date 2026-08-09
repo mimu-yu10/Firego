@@ -319,6 +319,26 @@ func TestStartAfterResolvesValues(t *testing.T) {
 	}
 }
 
+// TestCursorValuesAreCopied guards against StartAt/StartAfter/EndAt/EndBefore
+// retaining the backing array of a caller-supplied slice expanded with "...".
+// A Query is documented as immutable; without a copy, mutating the original
+// slice after building the query would silently change it.
+func TestCursorValuesAreCopied(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	values := []any{30}
+	q := ref.OrderBy("Age", query.Asc).StartAfter(values...)
+	values[0] = 999
+
+	if _, err := q.Documents(context.Background()); err != nil {
+		t.Fatalf("Documents() error = %v", err)
+	}
+	if got := store.lastQueryStart.Values; len(got) != 1 || got[0] != 30 {
+		t.Errorf("start cursor values = %v, want [30] (unaffected by mutating the original slice)", got)
+	}
+}
+
 func TestEndBeforeResolvesValues(t *testing.T) {
 	store := newFakeStore()
 	ref := newTestRef[testUser](t, store, "users")
