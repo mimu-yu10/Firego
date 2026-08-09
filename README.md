@@ -146,4 +146,4 @@ If you have mage installed (`go install github.com/magefile/mage@latest`), the s
 
 ## License
 
-No license has been chosen yet; the repository is not currently licensed for reuse.
+MIT — see [LICENSE](LICENSE).
