@@ -23,6 +23,16 @@ var ErrUnsupportedDirection = errors.New("firego: unsupported query direction")
 // ErrInvalidLimit is returned when Limit receives a negative value.
 var ErrInvalidLimit = errors.New("firego: query limit must not be negative")
 
+// ErrCursorRequiresOrderBy is returned when a cursor method (StartAt,
+// StartAfter, EndAt, EndBefore) is used on a Query with no OrderBy calls.
+// Firestore cursors are positioned relative to the sort order, so at least
+// one OrderBy is required.
+var ErrCursorRequiresOrderBy = errors.New("firego: query cursor requires at least one OrderBy")
+
+// ErrCursorValueCount is returned when a cursor method's values don't match
+// the number of OrderBy calls on the query, one value per ordered field.
+var ErrCursorValueCount = errors.New("firego: query cursor value count must match OrderBy count")
+
 // ErrIDFieldNotQueryable is returned by (*Query[T]).Documents when a Where
 // call named the model's ID field. A document's ID is not part of its
 // Firestore data, so it cannot be filtered on — use Get with the ID
@@ -41,6 +51,8 @@ type Query[T any] struct {
 	filters []query.Filter
 	orders  []query.Order
 	limit   *int
+	start   *query.Cursor
+	end     *query.Cursor
 }
 
 // Where returns a Query that additionally requires field to equal value.
@@ -102,18 +114,86 @@ func (q *Query[T]) appendFilter(field string, op query.Operator, value any) *Que
 	filters := make([]query.Filter, len(q.filters), len(q.filters)+1)
 	copy(filters, q.filters)
 	filters = append(filters, query.Filter{Field: field, Op: op, Value: value})
-	return &Query[T]{ref: q.ref, filters: filters, orders: q.orders, limit: q.limit}
+	return &Query[T]{ref: q.ref, filters: filters, orders: q.orders, limit: q.limit, start: q.start, end: q.end}
 }
 
 func (q *Query[T]) appendOrder(field string, direction query.Direction) *Query[T] {
 	orders := make([]query.Order, len(q.orders), len(q.orders)+1)
 	copy(orders, q.orders)
 	orders = append(orders, query.Order{Field: field, Direction: direction})
-	return &Query[T]{ref: q.ref, filters: q.filters, orders: orders, limit: q.limit}
+	return &Query[T]{ref: q.ref, filters: q.filters, orders: orders, limit: q.limit, start: q.start, end: q.end}
 }
 
 func (q *Query[T]) withLimit(n int) *Query[T] {
-	return &Query[T]{ref: q.ref, filters: q.filters, orders: q.orders, limit: &n}
+	return &Query[T]{ref: q.ref, filters: q.filters, orders: q.orders, limit: &n, start: q.start, end: q.end}
+}
+
+// StartAt starts a Query that begins at the document whose OrderBy fields
+// equal values, inclusive. values must supply exactly one value per OrderBy
+// call, in the same order OrderBy was called; Documents reports
+// ErrCursorRequiresOrderBy if the query has no OrderBy calls, or
+// ErrCursorValueCount if the counts don't match.
+func (r *CollectionRef[T]) StartAt(values ...any) *Query[T] {
+	return (&Query[T]{ref: r}).withStart(query.StartAt, values)
+}
+
+// StartAt returns a Query that begins at the document whose OrderBy fields
+// equal values, inclusive, combined with q's existing filters and ordering.
+// A later StartAt or StartAfter call replaces this bound; it does not
+// combine with it.
+func (q *Query[T]) StartAt(values ...any) *Query[T] {
+	return q.withStart(query.StartAt, values)
+}
+
+// StartAfter is like StartAt but excludes the matching document, starting
+// immediately after it. This is the typical way to fetch the next page
+// following a previous page's last result.
+func (r *CollectionRef[T]) StartAfter(values ...any) *Query[T] {
+	return (&Query[T]{ref: r}).withStart(query.StartAfter, values)
+}
+
+// StartAfter is like StartAt but excludes the matching document, starting
+// immediately after it.
+func (q *Query[T]) StartAfter(values ...any) *Query[T] {
+	return q.withStart(query.StartAfter, values)
+}
+
+// EndAt starts a Query that ends at the document whose OrderBy fields equal
+// values, inclusive. See StartAt for the value-count requirements.
+func (r *CollectionRef[T]) EndAt(values ...any) *Query[T] {
+	return (&Query[T]{ref: r}).withEnd(query.EndAt, values)
+}
+
+// EndAt returns a Query that ends at the document whose OrderBy fields equal
+// values, inclusive. A later EndAt or EndBefore call replaces this bound.
+func (q *Query[T]) EndAt(values ...any) *Query[T] {
+	return q.withEnd(query.EndAt, values)
+}
+
+// EndBefore is like EndAt but excludes the matching document, ending
+// immediately before it.
+func (r *CollectionRef[T]) EndBefore(values ...any) *Query[T] {
+	return (&Query[T]{ref: r}).withEnd(query.EndBefore, values)
+}
+
+// EndBefore is like EndAt but excludes the matching document, ending
+// immediately before it.
+func (q *Query[T]) EndBefore(values ...any) *Query[T] {
+	return q.withEnd(query.EndBefore, values)
+}
+
+func (q *Query[T]) withStart(bound query.CursorBound, values []any) *Query[T] {
+	return &Query[T]{
+		ref: q.ref, filters: q.filters, orders: q.orders, limit: q.limit,
+		start: &query.Cursor{Bound: bound, Values: values}, end: q.end,
+	}
+}
+
+func (q *Query[T]) withEnd(bound query.CursorBound, values []any) *Query[T] {
+	return &Query[T]{
+		ref: q.ref, filters: q.filters, orders: q.orders, limit: q.limit,
+		start: q.start, end: &query.Cursor{Bound: bound, Values: values},
+	}
 }
 
 // Documents runs the query and decodes every matching document into a T,
@@ -158,7 +238,19 @@ func (q *Query[T]) Documents(ctx context.Context) ([]T, error) {
 		resolvedOrders[i] = query.Order{Field: sf.FirestoreName, Direction: order.Direction}
 	}
 
-	docs, err := r.store.queryDocuments(ctx, r.schema.Collection, resolved, resolvedOrders, q.limit)
+	if q.start != nil || q.end != nil {
+		if len(resolvedOrders) == 0 {
+			return nil, fmt.Errorf("firego: query %s: %w", r.schema.Collection, ErrCursorRequiresOrderBy)
+		}
+	}
+	for _, cursor := range []*query.Cursor{q.start, q.end} {
+		if cursor != nil && len(cursor.Values) != len(resolvedOrders) {
+			return nil, fmt.Errorf("firego: query %s: cursor has %d value(s), OrderBy has %d: %w",
+				r.schema.Collection, len(cursor.Values), len(resolvedOrders), ErrCursorValueCount)
+		}
+	}
+
+	docs, err := r.store.queryDocuments(ctx, r.schema.Collection, resolved, resolvedOrders, q.limit, q.start, q.end)
 	if err != nil {
 		return nil, fmt.Errorf("firego: query %s: %w", r.schema.Collection, err)
 	}

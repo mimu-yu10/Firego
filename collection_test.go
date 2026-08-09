@@ -39,8 +39,8 @@ type testUpdateModel struct {
 type fakeStore struct {
 	docs map[string]map[string]any
 
-	getErr   error // when set, getDocument always returns this error
-	setErr   error // when set, setDocument always returns this error
+	getErr    error // when set, getDocument always returns this error
+	setErr    error // when set, setDocument always returns this error
 	createErr error // when set, createDocument always returns this error
 	deleteErr error // when set, deleteDocument always returns this error
 	updateErr error // when set, updateDocument always returns this error
@@ -54,6 +54,8 @@ type fakeStore struct {
 	lastQueryFilters    []query.Filter
 	lastQueryOrders     []query.Order
 	lastQueryLimit      *int
+	lastQueryStart      *query.Cursor
+	lastQueryEnd        *query.Cursor
 }
 
 func newFakeStore() *fakeStore {
@@ -118,11 +120,13 @@ func (f *fakeStore) updateDocument(_ context.Context, collection, id string, upd
 	return nil
 }
 
-func (f *fakeStore) queryDocuments(_ context.Context, collection string, filters []query.Filter, orders []query.Order, limit *int) ([]document, error) {
+func (f *fakeStore) queryDocuments(_ context.Context, collection string, filters []query.Filter, orders []query.Order, limit *int, start, end *query.Cursor) ([]document, error) {
 	f.lastQueryCollection = collection
 	f.lastQueryFilters = filters
 	f.lastQueryOrders = orders
 	f.lastQueryLimit = limit
+	f.lastQueryStart = start
+	f.lastQueryEnd = end
 	if f.queryErr != nil {
 		return nil, f.queryErr
 	}
