@@ -123,6 +123,18 @@ type documentUpdate struct {
 }
 
 func (c *Client) updateDocument(ctx context.Context, collection, id string, updates []documentUpdate) error {
+	if _, err := c.firestore.Collection(collection).Doc(id).Update(ctx, toFirestoreUpdates(updates)); err != nil {
+		if isNotFound(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("client: update %s/%s: %w", collection, id, err)
+	}
+	return nil
+}
+
+// toFirestoreUpdates converts Firego's internal update representation into
+// the Firestore SDK's, shared by Client and Tx.
+func toFirestoreUpdates(updates []documentUpdate) []firestore.Update {
 	fsUpdates := make([]firestore.Update, len(updates))
 	for i, update := range updates {
 		fsUpdates[i] = firestore.Update{
@@ -130,13 +142,7 @@ func (c *Client) updateDocument(ctx context.Context, collection, id string, upda
 			Value:     update.value,
 		}
 	}
-	if _, err := c.firestore.Collection(collection).Doc(id).Update(ctx, fsUpdates); err != nil {
-		if isNotFound(err) {
-			return ErrNotFound
-		}
-		return fmt.Errorf("client: update %s/%s: %w", collection, id, err)
-	}
-	return nil
+	return fsUpdates
 }
 
 // document is one result of a queryDocuments call: a document ID and its data.
