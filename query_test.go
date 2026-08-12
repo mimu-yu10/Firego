@@ -298,6 +298,145 @@ type testShadowedField struct {
 	Category string `firestore:"top_category"`
 }
 
+func TestStartAfterResolvesValues(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	if _, err := ref.OrderBy("Age", query.Asc).StartAfter(30).Documents(context.Background()); err != nil {
+		t.Fatalf("Documents() error = %v", err)
+	}
+	if store.lastQueryStart == nil {
+		t.Fatal("queryDocuments start cursor = nil, want non-nil")
+	}
+	if store.lastQueryStart.Bound != query.StartAfter {
+		t.Errorf("start cursor bound = %v, want %v", store.lastQueryStart.Bound, query.StartAfter)
+	}
+	if got := store.lastQueryStart.Values; len(got) != 1 || got[0] != 30 {
+		t.Errorf("start cursor values = %v, want [30]", got)
+	}
+	if store.lastQueryEnd != nil {
+		t.Errorf("end cursor = %v, want nil", store.lastQueryEnd)
+	}
+}
+
+// TestCursorValuesAreCopied guards against StartAt/StartAfter/EndAt/EndBefore
+// retaining the backing array of a caller-supplied slice expanded with "...".
+// A Query is documented as immutable; without a copy, mutating the original
+// slice after building the query would silently change it.
+func TestCursorValuesAreCopied(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	values := []any{30}
+	q := ref.OrderBy("Age", query.Asc).StartAfter(values...)
+	values[0] = 999
+
+	if _, err := q.Documents(context.Background()); err != nil {
+		t.Fatalf("Documents() error = %v", err)
+	}
+	if got := store.lastQueryStart.Values; len(got) != 1 || got[0] != 30 {
+		t.Errorf("start cursor values = %v, want [30] (unaffected by mutating the original slice)", got)
+	}
+}
+
+func TestEndBeforeResolvesValues(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	if _, err := ref.OrderBy("Age", query.Asc).EndBefore(30).Documents(context.Background()); err != nil {
+		t.Fatalf("Documents() error = %v", err)
+	}
+	if store.lastQueryEnd == nil {
+		t.Fatal("queryDocuments end cursor = nil, want non-nil")
+	}
+	if store.lastQueryEnd.Bound != query.EndBefore {
+		t.Errorf("end cursor bound = %v, want %v", store.lastQueryEnd.Bound, query.EndBefore)
+	}
+	if got := store.lastQueryEnd.Values; len(got) != 1 || got[0] != 30 {
+		t.Errorf("end cursor values = %v, want [30]", got)
+	}
+}
+
+func TestStartCursorReplacesPreviousStartCursor(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	q := ref.OrderBy("Age", query.Asc).StartAt(10).StartAfter(20)
+	if _, err := q.Documents(context.Background()); err != nil {
+		t.Fatalf("Documents() error = %v", err)
+	}
+	if store.lastQueryStart.Bound != query.StartAfter {
+		t.Errorf("start cursor bound = %v, want %v (StartAfter should replace StartAt)", store.lastQueryStart.Bound, query.StartAfter)
+	}
+	if got := store.lastQueryStart.Values; len(got) != 1 || got[0] != 20 {
+		t.Errorf("start cursor values = %v, want [20]", got)
+	}
+}
+
+func TestCursorIsImmutable(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+	base := ref.OrderBy("Age", query.Asc)
+
+	if _, err := base.StartAfter(30).Documents(context.Background()); err != nil {
+		t.Fatalf("cursor Documents() error = %v", err)
+	}
+	if _, err := base.Documents(context.Background()); err != nil {
+		t.Fatalf("base Documents() error = %v", err)
+	}
+	if store.lastQueryStart != nil {
+		t.Errorf("base query start cursor = %v, want nil", store.lastQueryStart)
+	}
+}
+
+func TestCursorRejectsMissingOrderBy(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	_, err := ref.StartAfter(30).Documents(context.Background())
+	if !errors.Is(err, ErrCursorRequiresOrderBy) {
+		t.Fatalf("Documents() error = %v, want errors.Is(err, ErrCursorRequiresOrderBy)", err)
+	}
+}
+
+// TestCursorAllowsOrderingPrefix exercises Firestore's field-value cursor
+// semantics: a cursor's values identify a prefix of the ordered position, so
+// supplying fewer values than there are OrderBy calls is valid (e.g.
+// OrderBy("State").OrderBy("Population").StartAt("California")).
+func TestCursorAllowsOrderingPrefix(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	_, err := ref.OrderBy("Age", query.Asc).OrderBy("Name", query.Asc).StartAfter(30).Documents(context.Background())
+	if err != nil {
+		t.Fatalf("Documents() error = %v, want nil (cursor values may cover an OrderBy prefix)", err)
+	}
+}
+
+func TestCursorRejectsValueCountExceedingOrderBy(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	_, err := ref.OrderBy("Age", query.Asc).StartAfter(30, "Alice").Documents(context.Background())
+	if !errors.Is(err, ErrCursorValueCount) {
+		t.Fatalf("Documents() error = %v, want errors.Is(err, ErrCursorValueCount)", err)
+	}
+}
+
+// TestCursorRejectsEmptyValues guards against a zero-length cursor (e.g.
+// StartAfter() called with no arguments) reaching the store: it identifies
+// no position at all, which Firestore could turn into an unbounded result or
+// a backend error instead of a clear local validation failure.
+func TestCursorRejectsEmptyValues(t *testing.T) {
+	store := newFakeStore()
+	ref := newTestRef[testUser](t, store, "users")
+
+	_, err := ref.OrderBy("Age", query.Asc).StartAfter().Documents(context.Background())
+	if !errors.Is(err, ErrCursorValueCount) {
+		t.Fatalf("Documents() error = %v, want errors.Is(err, ErrCursorValueCount)", err)
+	}
+}
+
 func TestWhereResolvesShadowedFieldToTopLevel(t *testing.T) {
 	store := newFakeStore()
 	ref := newTestRef[testShadowedField](t, store, "items")

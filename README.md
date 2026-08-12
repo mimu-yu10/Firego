@@ -4,7 +4,7 @@ Firego is an object-document mapper (ODM) for [Google Cloud Firestore](https://c
 
 The core idea: your model is a plain Go struct, and Firego takes care of the parts that are usually left to the caller — converting between Firestore's wire types and your struct's field types, and (eventually) wrapping multi-step operations in transactions. You describe the shape of your data with struct tags; Firego handles the rest.
 
-> **Status: early development.** Reading and writing a single document by ID works, as do equality and scalar comparison filters (`!=`, `<`, `<=`, `>`, `>=`) — see [Usage](#usage). Membership filters, ordering, limits, pagination, and transactions are not implemented yet. See [Project status](#project-status) for a package-by-package breakdown. The transaction API shown in [Vision](#vision) is a design target, not a guarantee of the final shape.
+> **Status: early development.** Reading and writing a single document by ID works, as do filters, ordering, limits, and cursor pagination — see [Usage](#usage). Transactions are not implemented yet. See [Project status](#project-status) for a package-by-package breakdown. The transaction API shown in [Vision](#vision) is a design target, not a guarantee of the final shape.
 
 ## Why Firego
 
@@ -99,8 +99,19 @@ selected, err := users.WhereOp("Age", query.In, []int{20, 30}).Documents(ctx)
 // OrderBy calls are immutable and may be chained after filters.
 youngestFirst, err := users.Where("Active", true).OrderBy("Age", query.Asc).Documents(ctx)
 
-// Limit caps the number of returned documents.
-firstPage, err := users.OrderBy("Age", query.Asc).Limit(20).Documents(ctx)
+// Limit caps the number of returned documents. Cursor pagination needs a
+// tie-breaker that's actually unique across the collection, or ties at the
+// page boundary can be split across pages inconsistently — Age alone isn't
+// unique, and neither is CreatedAt on its own if your writes can share a
+// timestamp; use whatever field (or combination) your schema genuinely
+// guarantees is unique. This example assumes CreatedAt is.
+firstPage, err := users.OrderBy("Age", query.Asc).OrderBy("CreatedAt", query.Asc).Limit(20).Documents(ctx)
+
+// StartAfter fetches the next page following the last result of a previous
+// page. Values must match the query's OrderBy fields, in order.
+last := firstPage[len(firstPage)-1]
+nextPage, err := users.OrderBy("Age", query.Asc).OrderBy("CreatedAt", query.Asc).
+	StartAfter(last.Age, last.CreatedAt).Limit(20).Documents(ctx)
 ```
 
 ## Vision
@@ -128,7 +139,7 @@ err = firego.RunTransaction(ctx, client, func(tx *firego.Tx) error {
 | `internal/metadata`  | Builds a `schema.Schema` from struct tags via reflection | Implemented (internal — not importable outside this module) |
 | `codec`              | Encodes/decodes between structs and `map[string]any`, with type conversion and ID-field access | Implemented |
 | `firego` (top-level) | Firestore client wrapper and public API: `NewClient`, `Collection[T]`, `Get`, `Set`, `Create`, `Update`, `Delete`, `Where`/`Documents` | Implemented |
-| `query`              | Query building                                       | Filters, ordering, and limits; cursor pagination not started |
+| `query`              | Query building                                       | Filters, ordering, limits, and cursor pagination (`StartAt`/`StartAfter`/`EndAt`/`EndBefore`) |
 | Transactions          | Automatic transaction wrapping for multi-step operations | Not started |
 
 ## Development

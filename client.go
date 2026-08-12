@@ -145,8 +145,9 @@ type document struct {
 	Data map[string]any
 }
 
-// queryDocuments returns every document in collection that matches all filters.
-func (c *Client) queryDocuments(ctx context.Context, collection string, filters []query.Filter, orders []query.Order, limit *int) ([]document, error) {
+// queryDocuments returns every document in collection that matches all
+// filters, bounded by start and end if non-nil.
+func (c *Client) queryDocuments(ctx context.Context, collection string, filters []query.Filter, orders []query.Order, limit *int, start, end *query.Cursor) ([]document, error) {
 	q := c.firestore.Collection(collection).Query
 	for _, f := range filters {
 		q = q.WherePath(firestore.FieldPath{f.Field}, string(f.Op), f.Value)
@@ -160,6 +161,20 @@ func (c *Client) queryDocuments(ctx context.Context, collection string, filters 
 	}
 	if limit != nil {
 		q = q.Limit(*limit)
+	}
+	if start != nil {
+		if start.Bound == query.StartAfter {
+			q = q.StartAfter(start.Values...)
+		} else {
+			q = q.StartAt(start.Values...)
+		}
+	}
+	if end != nil {
+		if end.Bound == query.EndBefore {
+			q = q.EndBefore(end.Values...)
+		} else {
+			q = q.EndAt(end.Values...)
+		}
 	}
 
 	iter := q.Documents(ctx)
