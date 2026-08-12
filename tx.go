@@ -6,15 +6,15 @@ import (
 	"fmt"
 
 	"cloud.google.com/go/firestore"
+	"github.com/mimu-y10/firego/codec"
+	"github.com/mimu-y10/firego/schema"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 // Tx represents an in-progress Firestore transaction, obtained from
-// RunTransaction. A follow-up change adds CollectionRef[T].Tx, a
-// transaction-scoped reference for reading and writing typed documents
-// through it; for now Tx exposes the underlying crudStore operations that
-// API will build on.
+// RunTransaction. Use CollectionRef[T].Tx to get a transaction-scoped
+// reference for reading and writing typed documents within it.
 type Tx struct {
 	client *Client
 	tx     *firestore.Transaction
@@ -32,8 +32,8 @@ var _ crudStore = (*Tx)(nil)
 //
 // Firestore validates a write's preconditions — Create's document-must-not-
 // exist, Update's document-must-exist — against the server when the
-// transaction commits, not when the Tx method that issued the write is
-// called (that call only enqueues it). So an error satisfying
+// transaction commits, not when the TxCollectionRef[T] method that issued
+// the write is called (that call only enqueues it). So an error satisfying
 // errors.Is(err, ErrAlreadyExists) or errors.Is(err, ErrNotFound) caused by
 // a write inside fn surfaces from RunTransaction itself, not from the
 // Create or Update call that issued it.
@@ -145,4 +145,70 @@ func (t *Tx) updateDocument(ctx context.Context, collection, id string, updates 
 		return fmt.Errorf("client: update %s/%s: %w", collection, id, err)
 	}
 	return nil
+}
+
+// TxCollectionRef is a type-safe, transaction-scoped reference to a
+// Firestore collection, obtained from CollectionRef[T].Tx. Its Get, Set,
+// Create, Delete, and Update methods behave exactly like CollectionRef[T]'s,
+// except that reads and writes happen through tx instead of as standalone
+// requests. Querying (Where/Documents) is not available within a
+// transaction.
+type TxCollectionRef[T any] struct {
+	store  crudStore
+	schema *schema.Schema
+	codec  codec.Codec
+}
+
+// Tx returns a transaction-scoped reference to r's collection. Use it inside
+// a RunTransaction callback in place of r itself.
+//
+// It returns an error satisfying errors.Is(err, ErrClientMismatch) if tx was
+// opened on a different *Client than r was created from.
+func (r *CollectionRef[T]) Tx(tx *Tx) (*TxCollectionRef[T], error) {
+	c, ok := r.store.(*Client)
+	if !ok || tx == nil || tx.client != c {
+		return nil, fmt.Errorf("firego: %s: %w", r.schema.Collection, ErrClientMismatch)
+	}
+	return &TxCollectionRef[T]{store: tx, schema: r.schema, codec: r.codec}, nil
+}
+
+// Get reads the document with the given ID and decodes it into a T. See
+// CollectionRef[T].Get for the full contract.
+func (r *TxCollectionRef[T]) Get(ctx context.Context, id string) (T, error) {
+	return getDoc[T](ctx, r.store, r.schema, r.codec, id)
+}
+
+// Set writes v to the document identified by v's ID field. See
+// CollectionRef[T].Set for the full contract.
+func (r *TxCollectionRef[T]) Set(ctx context.Context, v T) error {
+	return setDoc(ctx, r.store, r.schema, r.codec, v)
+}
+
+// Create writes v as a new document identified by v's ID field. See
+// CollectionRef[T].Create for the full contract.
+//
+// Unlike CollectionRef[T].Create, an error satisfying errors.Is(err,
+// ErrAlreadyExists) does not surface from this call — Firestore only
+// validates the document-must-not-exist precondition when the transaction
+// commits, so that error surfaces from RunTransaction instead. See
+// RunTransaction.
+func (r *TxCollectionRef[T]) Create(ctx context.Context, v T) error {
+	return createDoc(ctx, r.store, r.schema, r.codec, v)
+}
+
+// Delete removes the document with id. See CollectionRef[T].Delete for the
+// full contract.
+func (r *TxCollectionRef[T]) Delete(ctx context.Context, id string) error {
+	return deleteDoc(ctx, r.store, r.schema, id)
+}
+
+// Update changes selected fields on an existing document. See
+// CollectionRef[T].Update for the full contract.
+//
+// Unlike CollectionRef[T].Update, an error satisfying errors.Is(err,
+// ErrNotFound) does not surface from this call — Firestore only validates
+// the document-must-exist precondition when the transaction commits, so
+// that error surfaces from RunTransaction instead. See RunTransaction.
+func (r *TxCollectionRef[T]) Update(ctx context.Context, id string, updates ...FieldUpdate) error {
+	return updateDoc(ctx, r.store, r.schema, id, updates)
 }
